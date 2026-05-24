@@ -15,8 +15,7 @@ GID_SOLICITUDES = "0"
 
 # Función para enviar correo
 def enviar_correo(destinatario, asunto, cuerpo):
-    remitente = "rrhhparqueautomotor@gmail.com"
-    # NUEVA CLAVE INTEGRADA (sin espacios)
+    remitente = "fercoac@gmail.com"
     password = "wqhosrswlhrssqrp" 
     
     msg = MIMEText(cuerpo)
@@ -29,7 +28,7 @@ def enviar_correo(destinatario, asunto, cuerpo):
         server.sendmail(remitente, destinatario, msg.as_string())
         server.quit()
     except Exception as e:
-        st.warning(f"La nota se generó, pero el mail de aviso no pudo salir: {e}")
+        st.warning(f"Mail de aviso no enviado: {e}")
 
 # --- LOGIN ---
 if 'auth' not in st.session_state:
@@ -78,7 +77,8 @@ else:
             
             if not mis_marcas.empty:
                 st.write(f"Registros para el ID: {mi_id}")
-                st.dataframe(mis_marcas, use_container_width=True)
+                # CORRECCIÓN: hide_index=True para quitar la primera columna de números
+                st.dataframe(mis_marcas, use_container_width=True, hide_index=True)
             else:
                 st.info(f"No hay registros para el ID {mi_id}")
         except Exception as e:
@@ -106,9 +106,7 @@ else:
             if st.form_submit_button("Generar Solicitud Formal"):
                 dias = len(pd.bdate_range(f_inicio, f_fin))
                 if dias <= remanente and dias > 0:
-                    # Gramática: Día o Días
                     texto_dias = "día" if dias == 1 else "días"
-                    
                     meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
                     hoy = datetime.now()
                     fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
@@ -122,24 +120,16 @@ S__________/__________D
 
 Tengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.
 
-La presente solicitud se efectúa quedando sujeta a la autorización correspondiente y a las necesidades de servicio del área.
-
-Sin otro particular, saludo a Usted atentamente.
-
 Firma: _______________________________
 Apellido y Nombre: {user['Nombre']}
 D.N.I.: {user['DNI']}
 Teléfono de contacto: {user['Telefono']}
                     """
                     st.success("✅ ¡Solicitud generada!")
-                    st.text_area("Copiá el texto para imprimir:", nota, height=450)
-                    
-                    # Mail de aviso
-                    enviar_correo("rrhhparqueautomotor@gmail.com", 
-                                  f"Pedido LAR: {user['Nombre']}", 
-                                  f"El empleado {user['Nombre']} generó una nota por {dias} {texto_dias} hábiles.")
+                    st.text_area("Copia el texto para imprimir:", nota, height=450)
+                    enviar_correo("rrhhparqueautomotor@gmail.com", f"Pedido LAR: {user['Nombre']}", nota)
                 else:
-                    st.error(f"Revisá la cantidad de días (pediste {dias}, te quedan {int(remanente)}).")
+                    st.error("Revisá la cantidad de días solicitados.")
 
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state.auth
