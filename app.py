@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import smtplib
 from email.mime.text import MIMEText
 
@@ -12,7 +12,7 @@ SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
 GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
-GID_FERIADOS = "320254015" # GID tomado de tu captura
+GID_FERIADOS = "320254015" 
 
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "fercoac@gmail.com"
@@ -81,19 +81,18 @@ else:
     elif opcion == "Solicitar Vacaciones":
         st.header("🏖️ Solicitud de Licencia (L.A.R.)")
         
-        # CARGA DE FERIADOS MEJORADA
+        # CARGA DE FERIADOS
         try:
             url_feriados = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_FERIADOS}"
             df_feriados = pd.read_csv(url_feriados)
-            # Limpiamos nombres de columnas y convertimos fechas ignorando errores (como la palabra 'Fecha' repetida)
             df_feriados.columns = df_feriados.columns.str.strip()
-            # errors='coerce' convierte lo que no es fecha en "Nada" (NaT) y luego lo borramos con dropna
+            # Convertimos a fechas y las guardamos en un conjunto (set) para búsqueda rápida
             fechas_sucias = pd.to_datetime(df_feriados['Fecha'], dayfirst=True, errors='coerce')
-            lista_feriados = fechas_sucias.dropna().dt.date.tolist()
-        except Exception as e:
-            st.error(f"Error cargando feriados: {e}")
-            lista_feriados = []
+            lista_feriados = set(fechas_sucias.dropna().dt.date.tolist())
+        except:
+            lista_feriados = set()
 
+        # CARGA DE SOLICITUDES PREVIAS
         try:
             url_sol = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_SOLICITUDES}"
             df_sol = pd.read_csv(url_sol)
@@ -113,32 +112,42 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", min_value=f_inicio, format="DD/MM/YYYY")
         
-        # CÁLCULO DE DÍAS HÁBILES
-        rango_dias = pd.bdate_range(start=f_inicio, end=f_fin, holidays=lista_feriados)
-        dias_pedidos = len(rango_dias)
-        nuevo_remanente = remanente_actual - dias_pedidos
-
-        if dias_pedidos > 0:
-            st.info(f"🧾 **Resumen del pedido:**\n\n"
-                    f"* Días hábiles (sin fines de semana ni feriados): **{dias_pedidos}**\n"
-                    f"* Saldo restante: **{int(nuevo_remanente)}** días.")
+        # --- NUEVO CÁLCULO MANUAL DE DÍAS HÁBILES (A PRUEBA DE ERRORES) ---
+        if f_inicio and f_fin:
+            # Generamos lista de todos los días entre inicio y fin
+            cantidad_dias_total = (f_fin - f_inicio).days + 1
+            dias_habiles_lista = []
             
-            if nuevo_remanente < 0:
-                st.error("⚠️ No tienes días suficientes.")
-            else:
-                confirmar = st.checkbox("Confirmo que las fechas son correctas.")
-                if confirmar:
-                    if st.button("🚀 ENVIAR SOLICITUD"):
-                        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-                        hoy = datetime.now()
-                        fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
-                        texto_dias = "día" if dias_pedidos == 1 else "días"
+            for i in range(cantidad_dias_total):
+                dia_a_evaluar = f_inicio + timedelta(days=i)
+                # weekday < 5 es de Lunes a Viernes (0 a 4)
+                if dia_a_evaluar.weekday() < 5 and dia_a_evaluar not in lista_feriados:
+                    dias_habiles_lista.append(dia_a_evaluar)
+            
+            dias_pedidos = len(dias_habiles_lista)
+            nuevo_remanente = remanente_actual - dias_pedidos
 
-                        nota = f"""{fecha_salta}\n\nSr. Subsecretario del Parque Automotor\nRicardo Velarde Figueroa\nS__________/__________D\n\nTengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.\n\nFirma: _______________________________\nApellido y Nombre: {user['Nombre']}\nD.N.I.: {user['DNI']}\nTeléfono: {user['Telefono']}"""
-                        
-                        if enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", nota):
-                            st.success("✅ ¡Enviado!")
-                            st.text_area("Copia para imprimir:", nota, height=400)
+            if dias_pedidos > 0:
+                st.info(f"🧾 **Resumen del pedido:**\n\n"
+                        f"* Días hábiles (sin fines de semana ni feriados): **{dias_pedidos}**\n"
+                        f"* Saldo restante: **{int(nuevo_remanente)}** días.")
+                
+                if nuevo_remanente < 0:
+                    st.error("⚠️ No tienes días suficientes.")
+                else:
+                    confirmar = st.checkbox("Confirmo que las fechas son correctas.")
+                    if confirmar:
+                        if st.button("🚀 ENVIAR SOLICITUD"):
+                            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                            hoy = datetime.now()
+                            fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+                            texto_dias = "día" if dias_pedidos == 1 else "días"
+
+                            nota = f"""{fecha_salta}\n\nSr. Subsecretario del Parque Automotor\nRicardo Velarde Figueroa\nS__________/__________D\n\nTengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.\n\nFirma: _______________________________\nApellido y Nombre: {user['Nombre']}\nD.N.I.: {user['DNI']}\nTeléfono: {user['Telefono']}"""
+                            
+                            if enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", nota):
+                                st.success("✅ ¡Enviado!")
+                                st.text_area("Copia para imprimir:", nota, height=400)
 
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state.auth
