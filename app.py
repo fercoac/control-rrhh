@@ -12,6 +12,7 @@ SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
 GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
+GID_FERIADOS = "320254015" # 
 
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "fercoac@gmail.com"
@@ -79,6 +80,15 @@ else:
 
     elif opcion == "Solicitar Vacaciones":
         st.header("🏖️ Solicitud de Licencia (L.A.R.)")
+        
+        # Cargar Feriados
+        try:
+            url_feriados = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_FERIADOS}"
+            df_feriados = pd.read_csv(url_feriados)
+            lista_feriados = pd.to_datetime(df_feriados['Fecha'], dayfirst=True).dt.date.tolist()
+        except:
+            lista_feriados = []
+
         try:
             url_sol = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_SOLICITUDES}"
             df_sol = pd.read_csv(url_sol)
@@ -92,54 +102,38 @@ else:
         remanente_actual = float(user['Dias_Totales']) - dias_usados
         st.metric("Días Disponibles Hoy", f"{int(remanente_actual)}")
 
-        # Selección de fechas
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             f_inicio = st.date_input("Fecha Inicio", min_value=date(2025, 12, 1), format="DD/MM/YYYY")
         with col_f2:
             f_fin = st.date_input("Fecha Fin", min_value=f_inicio, format="DD/MM/YYYY")
         
-        # Cálculo inmediato
-        dias_pedidos = len(pd.bdate_range(f_inicio, f_fin))
+        # CÁLCULO DE DÍAS HÁBILES DESCONTANDO SÁBADOS, DOMINGOS Y FERIADOS CARGADOS
+        rango_dias = pd.bdate_range(start=f_inicio, end=f_fin, holidays=lista_feriados)
+        dias_pedidos = len(rango_dias)
         nuevo_remanente = remanente_actual - dias_pedidos
 
         if dias_pedidos > 0:
             st.info(f"🧾 **Resumen del pedido:**\n\n"
-                    f"* Días a solicitar: **{dias_pedidos}**\n"
-                    f"* Si confirmas, tu nuevo saldo será: **{int(nuevo_remanente)}** días.")
+                    f"* Días hábiles (sin fines de semana ni feriados): **{dias_pedidos}**\n"
+                    f"* Saldo restante: **{int(nuevo_remanente)}** días.")
             
             if nuevo_remanente < 0:
-                st.error("⚠️ No tienes días suficientes para este pedido.")
+                st.error("⚠️ No tienes días suficientes.")
             else:
-                # Paso de Confirmación
-                confirmar = st.checkbox("Confirmo que las fechas son correctas y deseo enviar la solicitud.")
-                
+                confirmar = st.checkbox("Confirmo que las fechas son correctas.")
                 if confirmar:
-                    if st.button("🚀 ENVIAR SOLICITUD AHORA"):
+                    if st.button("🚀 ENVIAR SOLICITUD"):
                         meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
                         hoy = datetime.now()
                         fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
                         texto_dias = "día" if dias_pedidos == 1 else "días"
 
-                        nota = f"""
-{fecha_salta}
-
-Sr. Subsecretario del Parque Automotor
-Ricardo Velarde Figueroa
-S__________/__________D
-
-Tengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.
-
-Firma: _______________________________
-Apellido y Nombre: {user['Nombre']}
-D.N.I.: {user['DNI']}
-Teléfono: {user['Telefono']}
-                        """
+                        nota = f"""{fecha_salta}\n\nSr. Subsecretario del Parque Automotor\nRicardo Velarde Figueroa\nS__________/__________D\n\nTengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.\n\nFirma: _______________________________\nApellido y Nombre: {user['Nombre']}\nD.N.I.: {user['DNI']}\nTeléfono: {user['Telefono']}"""
+                        
                         if enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", nota):
-                            st.success("✅ ¡Solicitud enviada! Copia el texto de abajo para imprimir tu nota.")
-                            st.text_area("Texto para la nota física:", nota, height=450)
-                        else:
-                            st.error("Hubo un error al enviar el mail. Intenta de nuevo.")
+                            st.success("✅ ¡Enviado!")
+                            st.text_area("Copia para imprimir:", nota, height=400)
 
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state.auth
