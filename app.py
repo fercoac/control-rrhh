@@ -81,18 +81,15 @@ else:
     elif opcion == "Solicitar Vacaciones":
         st.header("🏖️ Solicitud de Licencia (L.A.R.)")
         
-        # CARGA DE FERIADOS
         try:
             url_feriados = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_FERIADOS}"
             df_feriados = pd.read_csv(url_feriados)
             df_feriados.columns = df_feriados.columns.str.strip()
-            # Convertimos a fechas y las guardamos en un conjunto (set) para búsqueda rápida
             fechas_sucias = pd.to_datetime(df_feriados['Fecha'], dayfirst=True, errors='coerce')
             lista_feriados = set(fechas_sucias.dropna().dt.date.tolist())
         except:
             lista_feriados = set()
 
-        # CARGA DE SOLICITUDES PREVIAS
         try:
             url_sol = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_SOLICITUDES}"
             df_sol = pd.read_csv(url_sol)
@@ -112,15 +109,11 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", min_value=f_inicio, format="DD/MM/YYYY")
         
-        # --- NUEVO CÁLCULO MANUAL DE DÍAS HÁBILES (A PRUEBA DE ERRORES) ---
         if f_inicio and f_fin:
-            # Generamos lista de todos los días entre inicio y fin
             cantidad_dias_total = (f_fin - f_inicio).days + 1
             dias_habiles_lista = []
-            
             for i in range(cantidad_dias_total):
                 dia_a_evaluar = f_inicio + timedelta(days=i)
-                # weekday < 5 es de Lunes a Viernes (0 a 4)
                 if dia_a_evaluar.weekday() < 5 and dia_a_evaluar not in lista_feriados:
                     dias_habiles_lista.append(dia_a_evaluar)
             
@@ -142,12 +135,15 @@ else:
                             hoy = datetime.now()
                             fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
                             texto_dias = "día" if dias_pedidos == 1 else "días"
+                            
+                            # Limpiar DNI de puntos decimales
+                            dni_limpio = str(user['DNI']).split('.')[0]
 
-                            nota = f"""{fecha_salta}\n\nSr. Subsecretario del Parque Automotor\nRicardo Velarde Figueroa\nS__________/__________D\n\nTengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.\n\nFirma: _______________________________\nApellido y Nombre: {user['Nombre']}\nD.N.I.: {user['DNI']}\nTeléfono: {user['Telefono']}"""
+                            nota = f"""{fecha_salta}\n\nSr. Subsecretario del Parque Automotor\nRicardo Velarde Figueroa\nS__________/__________D\n\nTengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.\n\nLa presente solicitud se efectúa quedando sujeta a la autorización correspondiente y a las necesidades de servicio del área.\n\nSin otro particular, saludo a Usted atentamente.\n\n\nFirma: _______________________________\nApellido y Nombre: {user['Nombre']}\nD.N.I.: {dni_limpio}"""
                             
                             if enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", nota):
                                 st.success("✅ ¡Enviado!")
-                                st.text_area("Copia para imprimir:", nota, height=400)
+                                st.text_area("Copia para imprimir:", nota, height=450)
 
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state.auth
