@@ -15,7 +15,7 @@ GID_SOLICITUDES = "0"
 
 # Función para enviar correo
 def enviar_correo(destinatario, asunto, cuerpo):
-    remitente = "fercoac@gmail.com"
+    remitente = "rrhhparqueautomotor@gmail.com"
     password = "wqhosrswlhrssqrp" 
     
     msg = MIMEText(cuerpo)
@@ -77,7 +77,6 @@ else:
             
             if not mis_marcas.empty:
                 st.write(f"Registros para el ID: {mi_id}")
-                # CORRECCIÓN: hide_index=True para quitar la primera columna de números
                 st.dataframe(mis_marcas, use_container_width=True, hide_index=True)
             else:
                 st.info(f"No hay registros para el ID {mi_id}")
@@ -100,8 +99,9 @@ else:
         st.metric("Días Disponibles", f"{int(remanente)}")
 
         with st.form("form_v"):
-            f_inicio = st.date_input("Fecha Inicio", min_value=date(2025, 12, 1))
-            f_fin = st.date_input("Fecha Fin", min_value=f_inicio)
+            # CORRECCIÓN: Agregado format="DD/MM/YYYY" para que se vea bien en el calendario
+            f_inicio = st.date_input("Fecha Inicio", min_value=date(2025, 12, 1), format="DD/MM/YYYY")
+            f_fin = st.date_input("Fecha Fin", min_value=f_inicio, format="DD/MM/YYYY")
             
             if st.form_submit_button("Generar Solicitud Formal"):
                 dias = len(pd.bdate_range(f_inicio, f_fin))
