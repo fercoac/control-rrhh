@@ -22,7 +22,7 @@ def leer_hoja(gid):
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "rrhhparqueautomotor@gmail.com"
     # REEMPLAZA LAS XX POR TU CLAVE DE 16 LETRAS DE GOOGLE
-    password = "XXXXXXXXXXXXXXXX" 
+    password = "uwqiaqcuovcjejuk" 
     
     msg = MIMEText(cuerpo)
     msg['Subject'] = asunto
