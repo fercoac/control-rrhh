@@ -39,8 +39,9 @@ if 'auth' not in st.session_state:
         try:
             url_emp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_EMPLEADOS}"
             df_emp = pd.read_csv(url_emp)
+            # Limpieza de títulos de columnas
+            df_emp.columns = df_emp.columns.str.strip()
             
-            # Limpieza de DNI y PIN
             df_emp['DNI'] = df_emp['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
             df_emp['PIN'] = df_emp['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
             
@@ -65,19 +66,23 @@ else:
         st.header("📋 Mis Registros")
         try:
             url_marcas = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_MARCAS}"
-            # Ahora leemos NORMAL porque ya hay títulos en el Excel
             df_marcas = pd.read_csv(url_marcas)
+            
+            # --- LIMPIEZA DE COLUMNAS (Para evitar el error 'Fecha' not in index) ---
+            df_marcas.columns = df_marcas.columns.str.strip()
             
             # Limpiamos IDs para comparar
             mi_id = str(int(float(user['ID_Biometrico'])))
-            df_marcas['ID'] = df_marcas['ID'].astype(str).str.strip().str.replace('.0', '', regex=False)
+            # Buscamos la columna de ID (generalmente es la primera)
+            col_id = df_marcas.columns[0] 
+            df_marcas[col_id] = df_marcas[col_id].astype(str).str.strip().str.replace('.0', '', regex=False)
             
-            mis_marcas = df_marcas[df_marcas['ID'] == mi_id]
+            mis_marcas = df_marcas[df_marcas[col_id] == mi_id]
             
             if not mis_marcas.empty:
                 st.write(f"Mostrando marcas para el ID: {mi_id}")
-                # Mostramos los datos de forma limpia
-                st.dataframe(mis_marcas[['Fecha', 'Hora', 'Evento']], use_container_width=True)
+                # Mostramos todas las columnas que existan para no fallar
+                st.dataframe(mis_marcas, use_container_width=True)
             else:
                 st.info(f"No hay registros para el ID {mi_id}")
         except Exception as e:
@@ -88,6 +93,7 @@ else:
         try:
             url_sol = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_SOLICITUDES}"
             df_sol = pd.read_csv(url_sol)
+            df_sol.columns = df_sol.columns.str.strip()
             df_sol['DNI'] = df_sol['DNI'].astype(str).str.strip()
             mis_sol = df_sol[df_sol['DNI'] == str(user['DNI'])]
             dias_usados = mis_sol['Dias_Habiles'].sum()
