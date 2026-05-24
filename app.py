@@ -12,7 +12,7 @@ SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
 GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
-GID_FERIADOS = "320254015" # 
+GID_FERIADOS = "320254015" # GID tomado de tu captura
 
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "fercoac@gmail.com"
@@ -81,12 +81,17 @@ else:
     elif opcion == "Solicitar Vacaciones":
         st.header("🏖️ Solicitud de Licencia (L.A.R.)")
         
-        # Cargar Feriados
+        # CARGA DE FERIADOS MEJORADA
         try:
             url_feriados = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_FERIADOS}"
             df_feriados = pd.read_csv(url_feriados)
-            lista_feriados = pd.to_datetime(df_feriados['Fecha'], dayfirst=True).dt.date.tolist()
-        except:
+            # Limpiamos nombres de columnas y convertimos fechas ignorando errores (como la palabra 'Fecha' repetida)
+            df_feriados.columns = df_feriados.columns.str.strip()
+            # errors='coerce' convierte lo que no es fecha en "Nada" (NaT) y luego lo borramos con dropna
+            fechas_sucias = pd.to_datetime(df_feriados['Fecha'], dayfirst=True, errors='coerce')
+            lista_feriados = fechas_sucias.dropna().dt.date.tolist()
+        except Exception as e:
+            st.error(f"Error cargando feriados: {e}")
             lista_feriados = []
 
         try:
@@ -108,7 +113,7 @@ else:
         with col_f2:
             f_fin = st.date_input("Fecha Fin", min_value=f_inicio, format="DD/MM/YYYY")
         
-        # CÁLCULO DE DÍAS HÁBILES DESCONTANDO SÁBADOS, DOMINGOS Y FERIADOS CARGADOS
+        # CÁLCULO DE DÍAS HÁBILES
         rango_dias = pd.bdate_range(start=f_inicio, end=f_fin, holidays=lista_feriados)
         dias_pedidos = len(rango_dias)
         nuevo_remanente = remanente_actual - dias_pedidos
