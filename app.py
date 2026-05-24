@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
 
-# Datos de conexión (Tus GIDs confirmados)
+# Datos de conexión
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
 GID_MARCAS = "598259224"
@@ -16,7 +16,9 @@ GID_SOLICITUDES = "0"
 # Función para enviar correo
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "rrhhparqueautomotor@gmail.com"
-    password = "uwqiaqcuovcjejuk" 
+    # NUEVA CLAVE INTEGRADA (sin espacios)
+    password = "wqhosrswlhrssqrp" 
+    
     msg = MIMEText(cuerpo)
     msg['Subject'] = asunto
     msg['From'] = remitente
@@ -27,7 +29,7 @@ def enviar_correo(destinatario, asunto, cuerpo):
         server.sendmail(remitente, destinatario, msg.as_string())
         server.quit()
     except Exception as e:
-        st.warning(f"Error al enviar el mail: {e}")
+        st.warning(f"La nota se generó, pero el mail de aviso no pudo salir: {e}")
 
 # --- LOGIN ---
 if 'auth' not in st.session_state:
@@ -39,7 +41,6 @@ if 'auth' not in st.session_state:
         try:
             url_emp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_EMPLEADOS}"
             df_emp = pd.read_csv(url_emp)
-            # Limpieza de títulos de columnas
             df_emp.columns = df_emp.columns.str.strip()
             
             df_emp['DNI'] = df_emp['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
@@ -67,21 +68,16 @@ else:
         try:
             url_marcas = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_MARCAS}"
             df_marcas = pd.read_csv(url_marcas)
-            
-            # --- LIMPIEZA DE COLUMNAS (Para evitar el error 'Fecha' not in index) ---
             df_marcas.columns = df_marcas.columns.str.strip()
             
-            # Limpiamos IDs para comparar
             mi_id = str(int(float(user['ID_Biometrico'])))
-            # Buscamos la columna de ID (generalmente es la primera)
-            col_id = df_marcas.columns[0] 
+            col_id = df_marcas.columns[0]
             df_marcas[col_id] = df_marcas[col_id].astype(str).str.strip().str.replace('.0', '', regex=False)
             
             mis_marcas = df_marcas[df_marcas[col_id] == mi_id]
             
             if not mis_marcas.empty:
-                st.write(f"Mostrando marcas para el ID: {mi_id}")
-                # Mostramos todas las columnas que existan para no fallar
+                st.write(f"Registros para el ID: {mi_id}")
                 st.dataframe(mis_marcas, use_container_width=True)
             else:
                 st.info(f"No hay registros para el ID {mi_id}")
@@ -107,9 +103,12 @@ else:
             f_inicio = st.date_input("Fecha Inicio", min_value=date(2025, 12, 1))
             f_fin = st.date_input("Fecha Fin", min_value=f_inicio)
             
-            if st.form_submit_button("Generar Solicitud"):
+            if st.form_submit_button("Generar Solicitud Formal"):
                 dias = len(pd.bdate_range(f_inicio, f_fin))
-                if dias <= remanente:
+                if dias <= remanente and dias > 0:
+                    # Gramática: Día o Días
+                    texto_dias = "día" if dias == 1 else "días"
+                    
                     meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
                     hoy = datetime.now()
                     fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
@@ -121,18 +120,26 @@ Sr. Subsecretario del Parque Automotor
 Ricardo Velarde Figueroa
 S__________/__________D
 
-Tengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias} días hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.
+Tengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.
+
+La presente solicitud se efectúa quedando sujeta a la autorización correspondiente y a las necesidades de servicio del área.
+
+Sin otro particular, saludo a Usted atentamente.
 
 Firma: _______________________________
 Apellido y Nombre: {user['Nombre']}
 D.N.I.: {user['DNI']}
-Teléfono: {user['Telefono']}
+Teléfono de contacto: {user['Telefono']}
                     """
-                    st.success("✅ Solicitud lista.")
-                    st.text_area("Copie este texto:", nota, height=350)
-                    enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", nota)
+                    st.success("✅ ¡Solicitud generada!")
+                    st.text_area("Copiá el texto para imprimir:", nota, height=450)
+                    
+                    # Mail de aviso
+                    enviar_correo("rrhhparqueautomotor@gmail.com", 
+                                  f"Pedido LAR: {user['Nombre']}", 
+                                  f"El empleado {user['Nombre']} generó una nota por {dias} {texto_dias} hábiles.")
                 else:
-                    st.error(f"Días insuficientes (le quedan {int(remanente)}).")
+                    st.error(f"Revisá la cantidad de días (pediste {dias}, te quedan {int(remanente)}).")
 
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state.auth
