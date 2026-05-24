@@ -13,11 +13,9 @@ GID_EMPLEADOS = "1680284558"
 GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
 
-# Función para enviar correo
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "fercoac@gmail.com"
     password = "wqhosrswlhrssqrp" 
-    
     msg = MIMEText(cuerpo)
     msg['Subject'] = asunto
     msg['From'] = remitente
@@ -27,8 +25,10 @@ def enviar_correo(destinatario, asunto, cuerpo):
         server.login(remitente, password)
         server.sendmail(remitente, destinatario, msg.as_string())
         server.quit()
+        return True
     except Exception as e:
-        st.warning(f"Mail de aviso no enviado: {e}")
+        st.warning(f"Mail no enviado: {e}")
+        return False
 
 # --- LOGIN ---
 if 'auth' not in st.session_state:
@@ -41,10 +41,8 @@ if 'auth' not in st.session_state:
             url_emp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_EMPLEADOS}"
             df_emp = pd.read_csv(url_emp)
             df_emp.columns = df_emp.columns.str.strip()
-            
             df_emp['DNI'] = df_emp['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
             df_emp['PIN'] = df_emp['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
-            
             user_row = df_emp[(df_emp['DNI'] == str(dni_input).strip()) & (df_emp['PIN'] == str(pin_input).strip())]
             
             if not user_row.empty:
@@ -68,15 +66,11 @@ else:
             url_marcas = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_MARCAS}"
             df_marcas = pd.read_csv(url_marcas)
             df_marcas.columns = df_marcas.columns.str.strip()
-            
             mi_id = str(int(float(user['ID_Biometrico'])))
             col_id = df_marcas.columns[0]
             df_marcas[col_id] = df_marcas[col_id].astype(str).str.strip().str.replace('.0', '', regex=False)
-            
             mis_marcas = df_marcas[df_marcas[col_id] == mi_id]
-            
             if not mis_marcas.empty:
-                st.write(f"Registros para el ID: {mi_id}")
                 st.dataframe(mis_marcas, use_container_width=True, hide_index=True)
             else:
                 st.info(f"No hay registros para el ID {mi_id}")
@@ -95,41 +89,57 @@ else:
         except:
             dias_usados = 0
 
-        remanente = float(user['Dias_Totales']) - dias_usados
-        st.metric("Días Disponibles", f"{int(remanente)}")
+        remanente_actual = float(user['Dias_Totales']) - dias_usados
+        st.metric("Días Disponibles Hoy", f"{int(remanente_actual)}")
 
-        with st.form("form_v"):
-            # CORRECCIÓN: Agregado format="DD/MM/YYYY" para que se vea bien en el calendario
+        # Selección de fechas
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
             f_inicio = st.date_input("Fecha Inicio", min_value=date(2025, 12, 1), format="DD/MM/YYYY")
+        with col_f2:
             f_fin = st.date_input("Fecha Fin", min_value=f_inicio, format="DD/MM/YYYY")
-            
-            if st.form_submit_button("Generar Solicitud Formal"):
-                dias = len(pd.bdate_range(f_inicio, f_fin))
-                if dias <= remanente and dias > 0:
-                    texto_dias = "día" if dias == 1 else "días"
-                    meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-                    hoy = datetime.now()
-                    fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+        
+        # Cálculo inmediato
+        dias_pedidos = len(pd.bdate_range(f_inicio, f_fin))
+        nuevo_remanente = remanente_actual - dias_pedidos
 
-                    nota = f"""
+        if dias_pedidos > 0:
+            st.info(f"🧾 **Resumen del pedido:**\n\n"
+                    f"* Días a solicitar: **{dias_pedidos}**\n"
+                    f"* Si confirmas, tu nuevo saldo será: **{int(nuevo_remanente)}** días.")
+            
+            if nuevo_remanente < 0:
+                st.error("⚠️ No tienes días suficientes para este pedido.")
+            else:
+                # Paso de Confirmación
+                confirmar = st.checkbox("Confirmo que las fechas son correctas y deseo enviar la solicitud.")
+                
+                if confirmar:
+                    if st.button("🚀 ENVIAR SOLICITUD AHORA"):
+                        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                        hoy = datetime.now()
+                        fecha_salta = f"SALTA, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+                        texto_dias = "día" if dias_pedidos == 1 else "días"
+
+                        nota = f"""
 {fecha_salta}
 
 Sr. Subsecretario del Parque Automotor
 Ricardo Velarde Figueroa
 S__________/__________D
 
-Tengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.
+Tengo el agrado de dirigirme a Usted, a fin de solicitar autorización para hacer uso de mi Licencia Anual Reglamentaria — L.A.R., correspondiente al período 2025-2026, por la cantidad de {dias_pedidos} {texto_dias} hábiles, a partir del día {f_inicio.strftime('%d/%m/%Y')} y hasta el día {f_fin.strftime('%d/%m/%Y')}, inclusive.
 
 Firma: _______________________________
 Apellido y Nombre: {user['Nombre']}
 D.N.I.: {user['DNI']}
-Teléfono de contacto: {user['Telefono']}
-                    """
-                    st.success("✅ ¡Solicitud generada!")
-                    st.text_area("Copia el texto para imprimir:", nota, height=450)
-                    enviar_correo("rrhhparqueautomotor@gmail.com", f"Pedido LAR: {user['Nombre']}", nota)
-                else:
-                    st.error("Revisá la cantidad de días solicitados.")
+Teléfono: {user['Telefono']}
+                        """
+                        if enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", nota):
+                            st.success("✅ ¡Solicitud enviada! Copia el texto de abajo para imprimir tu nota.")
+                            st.text_area("Texto para la nota física:", nota, height=450)
+                        else:
+                            st.error("Hubo un error al enviar el mail. Intenta de nuevo.")
 
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state.auth
