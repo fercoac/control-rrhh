@@ -41,7 +41,7 @@ def leer_hoja(gid):
     return pd.read_csv(url)
 
 def enviar_correo(destinatario, asunto, cuerpo):
-    remitente = "rrhhparqueautomotor@gmail.com"
+    remitente = "fercoac@gmail.com"
     password = "wqhosrswlhrssqrp" 
     msg = MIMEText(cuerpo)
     msg['Subject'] = asunto
