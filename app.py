@@ -34,17 +34,15 @@ GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
 GID_FERIADOS = "320254015" 
 
-# --- FUNCIÓN DE LECTURA CON CACHÉ (SOLUCIÓN AL ERROR DE CONEXIÓN) ---
-# Guardamos los datos en memoria por 5 minutos (300 segundos) para evitar fatigar la conexión
+# --- FUNCIÓN DE LECTURA CON CACHÉ ---
 @st.cache_data(ttl=300)
 def leer_hoja_cache(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
-    for i in range(5): # Intentar hasta 5 veces
+    for i in range(5):
         try:
-            df = pd.read_csv(url)
-            return df
+            return pd.read_csv(url)
         except:
-            time.sleep(1) # Esperar un segundo entre reintentos
+            time.sleep(1)
     return pd.read_csv(url)
 
 def enviar_correo(destinatario, asunto, cuerpo):
@@ -73,9 +71,8 @@ if not st.session_state.auth:
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
     
     if st.button("Ingresar"):
-        with st.spinner('Conectando con el servidor...'):
+        with st.spinner('Conectando...'):
             try:
-                # Usamos la función con caché para mayor estabilidad
                 df = leer_hoja_cache(GID_EMPLEADOS)
                 df.columns = df.columns.str.strip()
                 df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
@@ -86,13 +83,12 @@ if not st.session_state.auth:
                 if not u.empty:
                     st.session_state.auth = True
                     st.session_state.user = u.iloc[0].to_dict()
-                    # Limpiar caché de otras hojas al entrar para asegurar datos nuevos
                     st.cache_data.clear() 
                     st.rerun()
                 else:
                     st.error("DNI o PIN incorrectos.")
-            except Exception as e:
-                st.error("El servidor de Google está tardando en responder. Intentá presionar 'Ingresar' nuevamente.")
+            except:
+                st.error("Error de conexión. Reintentá en unos segundos.")
 
 # --- APP ---
 else:
@@ -100,11 +96,13 @@ else:
     st.sidebar.write(f"Conectado: **{user['Nombre']}**")
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.auth = False
-        st.cache_data.clear() # Limpiar memoria al salir
+        st.cache_data.clear()
         st.rerun()
 
     if st.session_state.view == "Home":
-        st.title(f"Hola, {user['Nombre'].split()[0]} 👋")
+        # --- CAMBIO AQUÍ: Ahora toma la última palabra (el nombre) ---
+        nombre_pila = user['Nombre'].split()[-1]
+        st.title(f"Hola, {nombre_pila} 👋")
         st.write("¿Qué deseas hacer hoy?")
         
         if st.button("📋 Ver Mis Marcas Biométricas"):
@@ -122,7 +120,7 @@ else:
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📋 Mis Registros")
-        with st.spinner('Obteniendo datos...'):
+        with st.spinner('Cargando...'):
             df = leer_hoja_cache(GID_MARCAS)
             df.columns = df.columns.str.strip()
             mi_id = str(int(float(user['ID_Biometrico'])))
@@ -137,13 +135,11 @@ else:
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🏖️ Solicitar LAR")
-        
-        with st.spinner('Calculando saldo...'):
+        with st.spinner('Calculando...'):
             df_sol = leer_hoja_cache(GID_SOLICITUDES)
             df_sol.columns = df_sol.columns.str.strip()
             dni_u = str(user['DNI']).split('.')[0]
             usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
-            
             rem = float(user['Dias_Totales']) - usados
             st.write(f"Días utilizados: {int(usados)} de {int(user['Dias_Totales'])}")
             st.progress(min(1.0, usados / float(user['Dias_Totales'])))
@@ -168,7 +164,7 @@ else:
                         p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                         if requests.post(URL_MACRO, json=p).status_code == 200:
                             st.success("✅ Enviado.")
-                            st.cache_data.clear() # Limpiar para que al volver vea el nuevo saldo
+                            st.cache_data.clear()
 
     elif st.session_state.view == "Art74":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
@@ -176,10 +172,8 @@ else:
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
         dni_u = str(user['DNI']).split('.')[0]
         usados_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
-        
         st.write(f"Utilizados: {usados_art} de 2")
         st.progress(usados_art / 2)
-        
         if usados_art < 2:
             f_art = st.date_input("Día solicitado", format="DD/MM/YYYY")
             if st.button("🚀 ENVIAR"):
