@@ -9,14 +9,17 @@ import time
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
 
-# --- DISEÑO PREMIUM ---
+# --- DISEÑO PREMIUM MEJORADO (CON CONTRASTE EN TABLAS) ---
 custom_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     [data-testid="stSidebarNav"] {display: none;}
+    
     .main { background-color: #f8fafc; }
+    
+    /* Botones Home */
     div.stButton > button {
         width: 100%; border-radius: 12px; height: 3.8em; 
         background-color: #ffffff; color: #1e293b; 
@@ -28,6 +31,16 @@ custom_style = """
         border-color: #3b82f6; color: #3b82f6;
         transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
     }
+
+    /* ESTILO PARA CONTRASTE EN TÍTULOS DE TABLAS */
+    /* Esto pone el encabezado oscuro con letras blancas */
+    thead tr th {
+        background-color: #1e293b !important;
+        color: white !important;
+        font-weight: bold !important;
+    }
+    
+    /* Tarjetas de información */
     .stMetric {
         background-color: #ffffff; padding: 15px; 
         border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -36,7 +49,7 @@ custom_style = """
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
-# --- CONFIGURACIÓN DE DATOS ---
+# --- DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -73,7 +86,6 @@ if 'view' not in st.session_state: st.session_state.view = "Home"
 # --- LOGIN ---
 if not st.session_state.auth:
     st.title("🔐 Control de Ingresos")
-    st.caption("Subsecretaría del Parque Automotor")
     dni_i = st.text_input("DNI")
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
     if st.button("Ingresar"):
@@ -114,55 +126,44 @@ else:
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📋 Mis Registros")
-        
         df = leer_hoja_cache(GID_MARCAS)
         df.columns = df.columns.str.strip()
         mi_id = str(int(float(user['ID_Biometrico'])))
         col_id = df.columns[0]
         df[col_id] = df[col_id].astype(str).str.strip().str.replace('.0', '', regex=False)
         m = df[df[col_id] == mi_id].copy()
-        
         if not m.empty:
             m['temp_fecha'] = pd.to_datetime(m['Fecha'], dayfirst=True)
             m['temp_hora'] = pd.to_datetime(m['Hora'], format='%H:%M').dt.time
             m['dt'] = pd.to_datetime(m['Fecha'] + ' ' + m['Hora'], dayfirst=True)
             m = m.sort_values('dt', ascending=False)
-            
             ultima = m.iloc[0]
             st.success(f"**Último movimiento:** {ultima['Evento']} el {ultima['Fecha']} a las {ultima['Hora']}")
-
-            # --- LÓGICA DE LLEGADAS TARDE CORREGIDA ---
+            
+            # Tardanzas
             hoy = datetime.now()
             mes_actual = m[(m['temp_fecha'].dt.month == hoy.month) & (m['temp_fecha'].dt.year == hoy.year)]
             limite_i = datetime.strptime("08:11", "%H:%M").time()
             limite_f = datetime.strptime("09:00", "%H:%M").time()
-            
-            # FILTRO: Rango horario + Solo eventos "Entrada" o "Acceso"
-            tardanzas = mes_actual[
-                (mes_actual['temp_hora'] >= limite_i) & 
-                (mes_actual['temp_hora'] <= limite_f) & 
-                (mes_actual['Evento'].str.strip().isin(['Entrada', 'Acceso']))
-            ]
-            
+            tardanzas = mes_actual[(mes_actual['temp_hora'] >= limite_i) & (mes_actual['temp_hora'] <= limite_f) & (mes_actual['Evento'].str.strip().isin(['Entrada', 'Acceso']))]
             tardanzas_u = tardanzas.drop_duplicates(subset=['Fecha'])
-
             if not tardanzas_u.empty:
-                st.error(f"⚠️ **Llegadas tarde (Entradas/Accesos) en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
+                st.error(f"⚠️ **Llegadas tarde en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
                 st.write(f"Días: {', '.join(tardanzas_u['Fecha'].tolist())}")
             
             st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
-    # (El resto de las vistas: Vacaciones, Art74, Historial, Feriados se mantienen igual)
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🏖️ Solicitar LAR")
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
+        df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
         rem = float(user['Dias_Totales']) - usados
         st.metric("Días LAR Disponibles", f"{int(rem)}")
-        f_i = st.date_input("Inicio", format="DD/MM/YYYY", min_value=date.today())
+        f_i = st.date_input("Inicio", format="DD/MM/YYYY")
         f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
         try:
             df_f = leer_hoja_cache(GID_FERIADOS)
@@ -198,9 +199,24 @@ else:
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🔍 Mis Solicitudes")
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
+        df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
+        
         if not mis_s.empty:
+            # --- LÓGICA DE ICONOS PARA EL ESTADO ---
+            def format_estado(val):
+                if str(val).strip() == "Aprobado":
+                    return "✅ Aprobado"
+                elif str(val).strip() == "Pendiente":
+                    return "⏳ Pendiente"
+                elif str(val).strip() in ["Rechazado", "No Aprobado"]:
+                    return "❌ Rechazado"
+                return val
+
+            mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
+            
+            # Mostramos la tabla (El CSS de arriba se encarga del contraste en los títulos)
             st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
