@@ -5,11 +5,44 @@ import smtplib
 from email.mime.text import MIMEText
 import requests
 import time
+import base64
+import os
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
 
-# --- DISEÑO PREMIUM MEJORADO (CONTRASTE PARA CELULARES) ---
+# --- FUNCIÓN PARA EL LOGO EN LA ESQUINA ---
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+def set_logo():
+    if os.path.exists("logo.png"):
+        bin_str = get_base64_of_bin_file("logo.png")
+        logo_html = f"""
+            <style>
+            .logo-container {{
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1000;
+            }}
+            .logo-img {{
+                width: 80px;
+                opacity: 0.8;
+                filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.2));
+            }}
+            </style>
+            <div class="logo-container">
+                <img src="data:image/png;base64,{bin_str}" class="logo-img">
+            </div>
+        """
+        st.markdown(logo_html, unsafe_allow_html=True)
+
+set_logo()
+
+# --- DISEÑO PREMIUM ---
 custom_style = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -19,7 +52,6 @@ custom_style = """
     
     .main { background-color: #f8fafc; }
     
-    /* Botones Home con sombra */
     div.stButton > button {
         width: 100%; border-radius: 12px; height: 3.8em; 
         background-color: #ffffff; color: #1e293b; 
@@ -32,34 +64,16 @@ custom_style = """
         transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
     }
 
-    /* CONTRASTE PARA TÍTULOS DE TABLAS */
-    thead tr th {
-        background-color: #1e293b !important;
-        color: white !important;
-        font-weight: bold !important;
-    }
-
-    /* --- MEJORA DE CONTRASTE PARA NÚMEROS (MÉTRICAS) --- */
-    /* Caja que envuelve el número */
+    /* Contraste para números (Métricas) */
     div[data-testid="metric-container"] {
-        background-color: #ffffff;
-        border: 2px solid #3b82f6; /* Borde azul para que se vea */
-        padding: 15px;
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        background-color: #ffffff; border: 2px solid #3b82f6;
+        padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    /* El número grande */
-    [data-testid="stMetricValue"] {
-        color: #1e3a8a !important; /* Azul oscuro profundo */
-        font-weight: 800 !important;
-        font-size: 2.2rem !important;
-    }
-    /* El texto de arriba del número */
-    [data-testid="stMetricLabel"] {
-        color: #475569 !important; /* Gris oscuro */
-        font-weight: 700 !important;
-        font-size: 1rem !important;
-    }
+    [data-testid="stMetricValue"] { color: #1e3a8a !important; font-weight: 800 !important; font-size: 2.2rem !important; }
+    [data-testid="stMetricLabel"] { color: #475569 !important; font-weight: 700 !important; }
+
+    /* Títulos de tablas */
+    thead tr th { background-color: #1e293b !important; color: white !important; font-weight: bold !important; }
     </style>
     """
 st.markdown(custom_style, unsafe_allow_html=True)
@@ -72,13 +86,17 @@ GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
 GID_FERIADOS = "320254015" 
 
+# --- FUNCIÓN DE LECTURA ULTRARRESISTENTE (SOLUCIÓN ERROR CONEXIÓN) ---
 @st.cache_data(ttl=300)
 def leer_hoja_cache(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
-    for i in range(5):
-        try: return pd.read_csv(url)
-        except: time.sleep(1)
-    return pd.read_csv(url)
+    for i in range(10): # Hasta 10 intentos
+        try:
+            df = pd.read_csv(url, timeout=5) # Timeout corto para reintentar rápido
+            return df
+        except:
+            time.sleep(0.5) # Espera medio segundo
+    return pd.read_csv(url) # Último intento sin protección
 
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "fercoac@gmail.com"
@@ -101,24 +119,26 @@ if 'view' not in st.session_state: st.session_state.view = "Home"
 # --- LOGIN ---
 if not st.session_state.auth:
     st.title("🔐 Control de Ingresos")
+    st.caption("Subsecretaría del Parque Automotor")
     dni_i = st.text_input("DNI")
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
     if st.button("Ingresar"):
-        try:
-            df = leer_hoja_cache(GID_EMPLEADOS)
-            df.columns = df.columns.str.strip()
-            df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
-            df['PIN'] = df['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
-            u = df[(df['DNI'] == str(dni_i).strip()) & (df['PIN'] == str(pin_i).strip())]
-            if not u.empty:
-                st.session_state.auth = True
-                st.session_state.user = u.iloc[0].to_dict()
-                st.cache_data.clear()
-                st.rerun()
-            else: st.error("Datos incorrectos")
-        except: st.error("Error de conexión")
+        with st.spinner('Estableciendo conexión segura...'):
+            try:
+                df = leer_hoja_cache(GID_EMPLEADOS)
+                df.columns = df.columns.str.strip()
+                df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
+                df['PIN'] = df['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
+                u = df[(df['DNI'] == str(dni_i).strip()) & (df['PIN'] == str(pin_i).strip())]
+                if not u.empty:
+                    st.session_state.auth = True
+                    st.session_state.user = u.iloc[0].to_dict()
+                    st.cache_data.clear()
+                    st.rerun()
+                else: st.error("Datos incorrectos")
+            except: st.error("El servidor está ocupado. Intente presionar 'Ingresar' nuevamente.")
 
-# --- APP AUTENTICADA ---
+# --- APP ---
 else:
     user = st.session_state.user
     st.sidebar.subheader("👤 Perfil")
@@ -166,6 +186,7 @@ else:
             st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
+    # (Siguen las demás vistas de Vacaciones, Art74, etc. igual que antes)
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🏖️ Solicitar LAR")
@@ -174,10 +195,7 @@ else:
         dni_u = str(user['DNI']).split('.')[0]
         usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
         rem = float(user['Dias_Totales']) - usados
-        
-        # EL NÚMERO AHORA TENDRÁ MUCHO CONTRASTE
         st.metric("Días LAR Disponibles", f"{int(rem)}")
-        
         f_i = st.date_input("Inicio", format="DD/MM/YYYY")
         f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
         try:
@@ -192,7 +210,7 @@ else:
                 if st.button("🚀 ENVIAR"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                     if requests.post(URL_MACRO, json=p).status_code == 200:
-                        st.success("Enviado")
+                        st.success("✅ Enviado.")
                         st.cache_data.clear()
 
     elif st.session_state.view == "Art74":
@@ -201,10 +219,7 @@ else:
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
         dni_u = str(user['DNI']).split('.')[0]
         u_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
-        
-        # EL NÚMERO AHORA TENDRÁ MUCHO CONTRASTE
         st.metric("Días Art. 74 Disponibles", f"{2 - u_art}")
-        
         if u_art < 2:
             f_art = st.date_input("Fecha", format="DD/MM/YYYY")
             if st.button("🚀 ENVIAR ART. 74"):
@@ -217,7 +232,6 @@ else:
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🔍 Mis Solicitudes")
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
-        df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
         if not mis_s.empty:
