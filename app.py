@@ -9,7 +9,7 @@ import time
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
 
-# --- DISEÑO PREMIUM MEJORADO (CON CONTRASTE EN TABLAS) ---
+# --- DISEÑO PREMIUM MEJORADO (CONTRASTE PARA CELULARES) ---
 custom_style = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -19,7 +19,7 @@ custom_style = """
     
     .main { background-color: #f8fafc; }
     
-    /* Botones Home */
+    /* Botones Home con sombra */
     div.stButton > button {
         width: 100%; border-radius: 12px; height: 3.8em; 
         background-color: #ffffff; color: #1e293b; 
@@ -32,24 +32,39 @@ custom_style = """
         transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
     }
 
-    /* ESTILO PARA CONTRASTE EN TÍTULOS DE TABLAS */
-    /* Esto pone el encabezado oscuro con letras blancas */
+    /* CONTRASTE PARA TÍTULOS DE TABLAS */
     thead tr th {
         background-color: #1e293b !important;
         color: white !important;
         font-weight: bold !important;
     }
-    
-    /* Tarjetas de información */
-    .stMetric {
-        background-color: #ffffff; padding: 15px; 
-        border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+
+    /* --- MEJORA DE CONTRASTE PARA NÚMEROS (MÉTRICAS) --- */
+    /* Caja que envuelve el número */
+    div[data-testid="metric-container"] {
+        background-color: #ffffff;
+        border: 2px solid #3b82f6; /* Borde azul para que se vea */
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    /* El número grande */
+    [data-testid="stMetricValue"] {
+        color: #1e3a8a !important; /* Azul oscuro profundo */
+        font-weight: 800 !important;
+        font-size: 2.2rem !important;
+    }
+    /* El texto de arriba del número */
+    [data-testid="stMetricLabel"] {
+        color: #475569 !important; /* Gris oscuro */
+        font-weight: 700 !important;
+        font-size: 1rem !important;
     }
     </style>
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
-# --- DATOS ---
+# --- CONFIGURACIÓN DE DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -89,22 +104,21 @@ if not st.session_state.auth:
     dni_i = st.text_input("DNI")
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
     if st.button("Ingresar"):
-        with st.spinner('Validando...'):
-            try:
-                df = leer_hoja_cache(GID_EMPLEADOS)
-                df.columns = df.columns.str.strip()
-                df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
-                df['PIN'] = df['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
-                u = df[(df['DNI'] == str(dni_i).strip()) & (df['PIN'] == str(pin_i).strip())]
-                if not u.empty:
-                    st.session_state.auth = True
-                    st.session_state.user = u.iloc[0].to_dict()
-                    st.cache_data.clear()
-                    st.rerun()
-                else: st.error("Datos incorrectos")
-            except: st.error("Error de conexión")
+        try:
+            df = leer_hoja_cache(GID_EMPLEADOS)
+            df.columns = df.columns.str.strip()
+            df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
+            df['PIN'] = df['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
+            u = df[(df['DNI'] == str(dni_i).strip()) & (df['PIN'] == str(pin_i).strip())]
+            if not u.empty:
+                st.session_state.auth = True
+                st.session_state.user = u.iloc[0].to_dict()
+                st.cache_data.clear()
+                st.rerun()
+            else: st.error("Datos incorrectos")
+        except: st.error("Error de conexión")
 
-# --- APP ---
+# --- APP AUTENTICADA ---
 else:
     user = st.session_state.user
     st.sidebar.subheader("👤 Perfil")
@@ -140,7 +154,6 @@ else:
             ultima = m.iloc[0]
             st.success(f"**Último movimiento:** {ultima['Evento']} el {ultima['Fecha']} a las {ultima['Hora']}")
             
-            # Tardanzas
             hoy = datetime.now()
             mes_actual = m[(m['temp_fecha'].dt.month == hoy.month) & (m['temp_fecha'].dt.year == hoy.year)]
             limite_i = datetime.strptime("08:11", "%H:%M").time()
@@ -149,7 +162,6 @@ else:
             tardanzas_u = tardanzas.drop_duplicates(subset=['Fecha'])
             if not tardanzas_u.empty:
                 st.error(f"⚠️ **Llegadas tarde en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
-                st.write(f"Días: {', '.join(tardanzas_u['Fecha'].tolist())}")
             
             st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
@@ -162,7 +174,10 @@ else:
         dni_u = str(user['DNI']).split('.')[0]
         usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
         rem = float(user['Dias_Totales']) - usados
+        
+        # EL NÚMERO AHORA TENDRÁ MUCHO CONTRASTE
         st.metric("Días LAR Disponibles", f"{int(rem)}")
+        
         f_i = st.date_input("Inicio", format="DD/MM/YYYY")
         f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
         try:
@@ -172,7 +187,7 @@ else:
         r = (f_f - f_i).days + 1
         d_p = len([f_i+timedelta(days=i) for i in range(r) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
         if d_p > 0:
-            st.info(f"Días hábiles: {d_p}")
+            st.info(f"Días hábiles calculados: {d_p}")
             if rem >= d_p and st.checkbox("Confirmo fechas"):
                 if st.button("🚀 ENVIAR"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
@@ -186,7 +201,10 @@ else:
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
         dni_u = str(user['DNI']).split('.')[0]
         u_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
+        
+        # EL NÚMERO AHORA TENDRÁ MUCHO CONTRASTE
         st.metric("Días Art. 74 Disponibles", f"{2 - u_art}")
+        
         if u_art < 2:
             f_art = st.date_input("Fecha", format="DD/MM/YYYY")
             if st.button("🚀 ENVIAR ART. 74"):
@@ -202,21 +220,13 @@ else:
         df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
-        
         if not mis_s.empty:
-            # --- LÓGICA DE ICONOS PARA EL ESTADO ---
             def format_estado(val):
-                if str(val).strip() == "Aprobado":
-                    return "✅ Aprobado"
-                elif str(val).strip() == "Pendiente":
-                    return "⏳ Pendiente"
-                elif str(val).strip() in ["Rechazado", "No Aprobado"]:
-                    return "❌ Rechazado"
+                if str(val).strip() == "Aprobado": return "✅ Aprobado"
+                if str(val).strip() == "Pendiente": return "⏳ Pendiente"
+                if str(val).strip() in ["Rechazado", "No Aprobado"]: return "❌ Rechazado"
                 return val
-
             mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
-            
-            # Mostramos la tabla (El CSS de arriba se encarga del contraste en los títulos)
             st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
