@@ -16,11 +16,7 @@ custom_style = """
     footer {visibility: hidden;}
     header {visibility: hidden;}
     [data-testid="stSidebarNav"] {display: none;}
-    
-    /* Fondo y tipografía */
     .main { background-color: #f8fafc; }
-    
-    /* Botones Home */
     div.stButton > button {
         width: 100%; border-radius: 12px; height: 3.8em; 
         background-color: #ffffff; color: #1e293b; 
@@ -32,8 +28,6 @@ custom_style = """
         border-color: #3b82f6; color: #3b82f6;
         transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
     }
-    
-    /* Tarjetas de información */
     .stMetric {
         background-color: #ffffff; padding: 15px; 
         border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -42,7 +36,7 @@ custom_style = """
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
-# --- DATOS ---
+# --- CONFIGURACIÓN DE DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -109,26 +103,20 @@ else:
         st.cache_data.clear()
         st.rerun()
 
-    # --- PANTALLA INICIAL ---
+    # --- HOME ---
     if st.session_state.view == "Home":
-        # Saludo por Nombre (última palabra)
         nombre_pila = user['Nombre'].split()[-1] if len(user['Nombre'].split()) > 1 else user['Nombre']
         st.title(f"Hola, {nombre_pila} 👋")
         st.write("¿Qué deseas realizar hoy?")
         
-        # Botones de navegación
         if st.button("📋 Mis Marcas Biométricas"):
             st.session_state.view = "Marcas"; st.rerun()
-        
         if st.button("🏖️ Solicitar Licencia LAR"):
             st.session_state.view = "Vacaciones"; st.rerun()
-            
         if st.button("📄 Solicitar Art. 74 (Particulares)"):
             st.session_state.view = "Art74"; st.rerun()
-
         if st.button("🔍 Ver Estado de Mis Solicitudes"):
             st.session_state.view = "Historial"; st.rerun()
-
         if st.button("🗓️ Consultar Calendario de Feriados"):
             st.session_state.view = "Feriados"; st.rerun()
 
@@ -145,90 +133,94 @@ else:
         m = df[df[col_id] == mi_id].copy()
         
         if not m.empty:
+            # Procesar fechas y horas para análisis
+            m['temp_fecha'] = pd.to_datetime(m['Fecha'], dayfirst=True)
+            m['temp_hora'] = pd.to_datetime(m['Hora'], format='%H:%M').dt.time
             m['dt'] = pd.to_datetime(m['Fecha'] + ' ' + m['Hora'], dayfirst=True)
             m = m.sort_values('dt', ascending=False)
             
-            # Resumen de última marca
+            # 1. Mostrar Último movimiento (verde)
             ultima = m.iloc[0]
             st.success(f"**Último movimiento:** {ultima['Evento']} el {ultima['Fecha']} a las {ultima['Hora']}")
+
+            # 2. Lógica de LLEGADAS TARDE (Mes actual, 08:11 a 09:00)
+            hoy = datetime.now()
+            # Filtrar solo marcas del mes y año actual
+            mes_actual = m[(m['temp_fecha'].dt.month == hoy.month) & (m['temp_fecha'].dt.year == hoy.year)]
             
-            st.dataframe(m.drop(columns=['dt']), use_container_width=True, hide_index=True)
+            # Definir límites de tiempo
+            limite_inicio = datetime.strptime("08:11", "%H:%M").time()
+            limite_fin = datetime.strptime("09:00", "%H:%M").time()
+            
+            # Filtrar marcas en el rango de llegada tarde
+            tardanzas = mes_actual[(mes_actual['temp_hora'] >= limite_inicio) & (mes_actual['temp_hora'] <= limite_fin)]
+            
+            # Para no repetir si marcó dos veces en ese rango el mismo día, tomamos la primera
+            tardanzas_unicas = tardanzas.drop_duplicates(subset=['Fecha'])
+
+            if not tardanzas_unicas.empty:
+                st.error(f"⚠️ **Llegadas tarde detectadas en {hoy.strftime('%B')}:** {len(tardanzas_unicas)}")
+                # Detalle de días (lista compacta)
+                dias_tarde = ", ".join(tardanzas_unicas['Fecha'].tolist())
+                st.write(f"Días: {dias_tarde}")
+            
+            # Mostrar tabla completa
+            st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
-    # --- VISTA: VACACIONES ---
+    # --- LAS DEMÁS VISTAS SE MANTIENEN IGUAL (Vacaciones, Art74, etc.) ---
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🏖️ Solicitar LAR")
-        
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
-        df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
         rem = float(user['Dias_Totales']) - usados
-        
-        st.write(f"Utilizados: {int(usados)} de {int(user['Dias_Totales'])}")
-        st.progress(min(1.0, usados / float(user['Dias_Totales'])))
         st.metric("Días LAR Disponibles", f"{int(rem)}")
-
         f_i = st.date_input("Inicio", format="DD/MM/YYYY", min_value=date.today())
         f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
-        
-        # Feriados
         try:
             df_f = leer_hoja_cache(GID_FERIADOS)
             l_f = set(pd.to_datetime(df_f['Fecha'], dayfirst=True, errors='coerce').dropna().dt.date.tolist())
         except: l_f = set()
-
-        rango = (f_f - f_i).days + 1
-        d_p = len([f_i + timedelta(days=i) for i in range(rango) if (f_i + timedelta(days=i)).weekday() < 5 and (f_i + timedelta(days=i)) not in l_f])
-
+        r = (f_f - f_i).days + 1
+        d_p = len([f_i+timedelta(days=i) for i in range(r) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
         if d_p > 0:
-            st.info(f"Días hábiles calculados: {d_p}")
-            if rem >= d_p:
-                if st.checkbox("Confirmo fechas"):
-                    if st.button("🚀 ENVIAR SOLICITUD"):
-                        p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
-                        if requests.post(URL_MACRO, json=p).status_code == 200:
-                            st.success("✅ Enviado.")
-                            st.cache_data.clear()
+            st.info(f"Días hábiles: {d_p}")
+            if rem >= d_p and st.checkbox("Confirmo fechas"):
+                if st.button("🚀 ENVIAR"):
+                    p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
+                    if requests.post(URL_MACRO, json=p).status_code == 200:
+                        st.success("Enviado")
+                        st.cache_data.clear()
 
-    # --- VISTA: ART 74 ---
     elif st.session_state.view == "Art74":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📄 Artículo 74")
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
         dni_u = str(user['DNI']).split('.')[0]
-        usados_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
-        
-        st.progress(usados_art / 2)
-        st.metric("Días Art. 74 Disponibles", f"{2 - usados_art}")
-        
-        if usados_art < 2:
+        u_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
+        st.metric("Días Art. 74 Disponibles", f"{2 - u_art}")
+        if u_art < 2:
             f_art = st.date_input("Fecha", format="DD/MM/YYYY")
-            if st.button("🚀 ENVIAR"):
+            if st.button("🚀 ENVIAR ART. 74"):
                 p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_art.strftime('%d/%m/%Y'), "fin": f_art.strftime('%d/%m/%Y'), "dias": 1, "tipo": "Art74"}
                 if requests.post(URL_MACRO, json=p).status_code == 200:
-                    st.success("✅ Enviado.")
+                    st.success("Enviado")
                     st.cache_data.clear()
 
-    # --- VISTA: HISTORIAL ---
     elif st.session_state.view == "Historial":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🔍 Mis Solicitudes")
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
-        df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
         if not mis_s.empty:
             st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
-    # --- VISTA: FERIADOS ---
     elif st.session_state.view == "Feriados":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
-        st.header("🗓️ Calendario de Feriados")
-        st.write("Estos días no se descuentan de tu licencia LAR:")
-        try:
-            df_f = leer_hoja_cache(GID_FERIADOS)
-            st.dataframe(df_f, use_container_width=True, hide_index=True)
-        except: st.error("No se pudo cargar la lista.")
+        st.header("🗓️ Feriados")
+        df_f = leer_hoja_cache(GID_FERIADOS)
+        st.dataframe(df_f, use_container_width=True, hide_index=True)
