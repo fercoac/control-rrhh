@@ -11,7 +11,7 @@ import os
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
 
-# --- FUNCIÓN PARA EL LOGO EN LA ESQUINA ---
+# --- LOGO EN LA ESQUINA ---
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
         data = f.read()
@@ -30,7 +30,7 @@ def set_logo():
             }}
             .logo-img {{
                 width: 80px;
-                opacity: 0.8;
+                opacity: 0.9;
                 filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.2));
             }}
             </style>
@@ -42,16 +42,14 @@ def set_logo():
 
 set_logo()
 
-# --- DISEÑO PREMIUM ---
+# --- DISEÑO ---
 custom_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     [data-testid="stSidebarNav"] {display: none;}
-    
     .main { background-color: #f8fafc; }
-    
     div.stButton > button {
         width: 100%; border-radius: 12px; height: 3.8em; 
         background-color: #ffffff; color: #1e293b; 
@@ -59,26 +57,18 @@ custom_style = """
         transition: all 0.2s ease; font-weight: 600; text-align: left;
         padding-left: 20px;
     }
-    div.stButton > button:hover {
-        border-color: #3b82f6; color: #3b82f6;
-        transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-    }
-
-    /* Contraste para números (Métricas) */
+    div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; transform: translateY(-2px); }
     div[data-testid="metric-container"] {
         background-color: #ffffff; border: 2px solid #3b82f6;
-        padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        padding: 15px; border-radius: 12px;
     }
-    [data-testid="stMetricValue"] { color: #1e3a8a !important; font-weight: 800 !important; font-size: 2.2rem !important; }
+    [data-testid="stMetricValue"] { color: #1e3a8a !important; font-weight: 800 !important; }
     [data-testid="stMetricLabel"] { color: #475569 !important; font-weight: 700 !important; }
-
-    /* Títulos de tablas */
     thead tr th { background-color: #1e293b !important; color: white !important; font-weight: bold !important; }
     </style>
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
-# --- CONFIGURACIÓN DE DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -86,17 +76,13 @@ GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
 GID_FERIADOS = "320254015" 
 
-# --- FUNCIÓN DE LECTURA ULTRARRESISTENTE (SOLUCIÓN ERROR CONEXIÓN) ---
 @st.cache_data(ttl=300)
 def leer_hoja_cache(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
-    for i in range(10): # Hasta 10 intentos
-        try:
-            df = pd.read_csv(url, timeout=5) # Timeout corto para reintentar rápido
-            return df
-        except:
-            time.sleep(0.5) # Espera medio segundo
-    return pd.read_csv(url) # Último intento sin protección
+    for i in range(10):
+        try: return pd.read_csv(url, timeout=5)
+        except: time.sleep(0.5)
+    return pd.read_csv(url)
 
 def enviar_correo(destinatario, asunto, cuerpo):
     remitente = "fercoac@gmail.com"
@@ -123,7 +109,7 @@ if not st.session_state.auth:
     dni_i = st.text_input("DNI")
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
     if st.button("Ingresar"):
-        with st.spinner('Estableciendo conexión segura...'):
+        with st.spinner('Conectando...'):
             try:
                 df = leer_hoja_cache(GID_EMPLEADOS)
                 df.columns = df.columns.str.strip()
@@ -136,7 +122,7 @@ if not st.session_state.auth:
                     st.cache_data.clear()
                     st.rerun()
                 else: st.error("Datos incorrectos")
-            except: st.error("El servidor está ocupado. Intente presionar 'Ingresar' nuevamente.")
+            except: st.error("Error de conexión. Intente de nuevo.")
 
 # --- APP ---
 else:
@@ -160,38 +146,48 @@ else:
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📋 Mis Registros")
+        
         df = leer_hoja_cache(GID_MARCAS)
         df.columns = df.columns.str.strip()
         mi_id = str(int(float(user['ID_Biometrico'])))
         col_id = df.columns[0]
         df[col_id] = df[col_id].astype(str).str.strip().str.replace('.0', '', regex=False)
         m = df[df[col_id] == mi_id].copy()
+        
         if not m.empty:
             m['temp_fecha'] = pd.to_datetime(m['Fecha'], dayfirst=True)
             m['temp_hora'] = pd.to_datetime(m['Hora'], format='%H:%M').dt.time
             m['dt'] = pd.to_datetime(m['Fecha'] + ' ' + m['Hora'], dayfirst=True)
             m = m.sort_values('dt', ascending=False)
+            
+            # Último movimiento
             ultima = m.iloc[0]
             st.success(f"**Último movimiento:** {ultima['Evento']} el {ultima['Fecha']} a las {ultima['Hora']}")
-            
+
+            # Lógica de llegadas tarde
             hoy = datetime.now()
             mes_actual = m[(m['temp_fecha'].dt.month == hoy.month) & (m['temp_fecha'].dt.year == hoy.year)]
             limite_i = datetime.strptime("08:11", "%H:%M").time()
             limite_f = datetime.strptime("09:00", "%H:%M").time()
+            
             tardanzas = mes_actual[(mes_actual['temp_hora'] >= limite_i) & (mes_actual['temp_hora'] <= limite_f) & (mes_actual['Evento'].str.strip().isin(['Entrada', 'Acceso']))]
             tardanzas_u = tardanzas.drop_duplicates(subset=['Fecha'])
+
             if not tardanzas_u.empty:
-                st.error(f"⚠️ **Llegadas tarde en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
+                # Mostramos el cartel rojo
+                st.error(f"⚠️ **Llegadas tarde detectadas en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
+                # --- AQUÍ VOLVEMOS A MOSTRAR EL DETALLE DE DÍAS ---
+                lista_dias = ", ".join(tardanzas_u['Fecha'].tolist())
+                st.markdown(f"**Días:** {lista_dias}")
             
             st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
-    # (Siguen las demás vistas de Vacaciones, Art74, etc. igual que antes)
+    # Las demás funciones (Vacaciones, Art74, etc.) se mantienen igual
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🏖️ Solicitar LAR")
         df_sol = leer_hoja_cache(GID_SOLICITUDES)
-        df_sol.columns = df_sol.columns.str.strip()
         dni_u = str(user['DNI']).split('.')[0]
         usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
         rem = float(user['Dias_Totales']) - usados
@@ -210,7 +206,7 @@ else:
                 if st.button("🚀 ENVIAR"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                     if requests.post(URL_MACRO, json=p).status_code == 200:
-                        st.success("✅ Enviado.")
+                        st.success("Enviado.")
                         st.cache_data.clear()
 
     elif st.session_state.view == "Art74":
@@ -225,7 +221,7 @@ else:
             if st.button("🚀 ENVIAR ART. 74"):
                 p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_art.strftime('%d/%m/%Y'), "fin": f_art.strftime('%d/%m/%Y'), "dias": 1, "tipo": "Art74"}
                 if requests.post(URL_MACRO, json=p).status_code == 200:
-                    st.success("Enviado")
+                    st.success("Enviado.")
                     st.cache_data.clear()
 
     elif st.session_state.view == "Historial":
