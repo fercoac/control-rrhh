@@ -76,7 +76,6 @@ if not st.session_state.auth:
     st.caption("Subsecretaría del Parque Automotor")
     dni_i = st.text_input("DNI")
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
-    
     if st.button("Ingresar"):
         with st.spinner('Validando...'):
             try:
@@ -103,24 +102,15 @@ else:
         st.cache_data.clear()
         st.rerun()
 
-    # --- HOME ---
     if st.session_state.view == "Home":
         nombre_pila = user['Nombre'].split()[-1] if len(user['Nombre'].split()) > 1 else user['Nombre']
         st.title(f"Hola, {nombre_pila} 👋")
-        st.write("¿Qué deseas realizar hoy?")
-        
-        if st.button("📋 Mis Marcas Biométricas"):
-            st.session_state.view = "Marcas"; st.rerun()
-        if st.button("🏖️ Solicitar Licencia LAR"):
-            st.session_state.view = "Vacaciones"; st.rerun()
-        if st.button("📄 Solicitar Art. 74 (Particulares)"):
-            st.session_state.view = "Art74"; st.rerun()
-        if st.button("🔍 Ver Estado de Mis Solicitudes"):
-            st.session_state.view = "Historial"; st.rerun()
-        if st.button("🗓️ Consultar Calendario de Feriados"):
-            st.session_state.view = "Feriados"; st.rerun()
+        if st.button("📋 Mis Marcas Biométricas"): st.session_state.view = "Marcas"; st.rerun()
+        if st.button("🏖️ Solicitar Licencia LAR"): st.session_state.view = "Vacaciones"; st.rerun()
+        if st.button("📄 Solicitar Art. 74 (Particulares)"): st.session_state.view = "Art74"; st.rerun()
+        if st.button("🔍 Ver Estado de Mis Solicitudes"): st.session_state.view = "Historial"; st.rerun()
+        if st.button("🗓️ Consultar Calendario de Feriados"): st.session_state.view = "Feriados"; st.rerun()
 
-    # --- VISTA: MARCAS ---
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📋 Mis Registros")
@@ -133,42 +123,37 @@ else:
         m = df[df[col_id] == mi_id].copy()
         
         if not m.empty:
-            # Procesar fechas y horas para análisis
             m['temp_fecha'] = pd.to_datetime(m['Fecha'], dayfirst=True)
             m['temp_hora'] = pd.to_datetime(m['Hora'], format='%H:%M').dt.time
             m['dt'] = pd.to_datetime(m['Fecha'] + ' ' + m['Hora'], dayfirst=True)
             m = m.sort_values('dt', ascending=False)
             
-            # 1. Mostrar Último movimiento (verde)
             ultima = m.iloc[0]
             st.success(f"**Último movimiento:** {ultima['Evento']} el {ultima['Fecha']} a las {ultima['Hora']}")
 
-            # 2. Lógica de LLEGADAS TARDE (Mes actual, 08:11 a 09:00)
+            # --- LÓGICA DE LLEGADAS TARDE CORREGIDA ---
             hoy = datetime.now()
-            # Filtrar solo marcas del mes y año actual
             mes_actual = m[(m['temp_fecha'].dt.month == hoy.month) & (m['temp_fecha'].dt.year == hoy.year)]
+            limite_i = datetime.strptime("08:11", "%H:%M").time()
+            limite_f = datetime.strptime("09:00", "%H:%M").time()
             
-            # Definir límites de tiempo
-            limite_inicio = datetime.strptime("08:11", "%H:%M").time()
-            limite_fin = datetime.strptime("09:00", "%H:%M").time()
+            # FILTRO: Rango horario + Solo eventos "Entrada" o "Acceso"
+            tardanzas = mes_actual[
+                (mes_actual['temp_hora'] >= limite_i) & 
+                (mes_actual['temp_hora'] <= limite_f) & 
+                (mes_actual['Evento'].str.strip().isin(['Entrada', 'Acceso']))
+            ]
             
-            # Filtrar marcas en el rango de llegada tarde
-            tardanzas = mes_actual[(mes_actual['temp_hora'] >= limite_inicio) & (mes_actual['temp_hora'] <= limite_fin)]
-            
-            # Para no repetir si marcó dos veces en ese rango el mismo día, tomamos la primera
-            tardanzas_unicas = tardanzas.drop_duplicates(subset=['Fecha'])
+            tardanzas_u = tardanzas.drop_duplicates(subset=['Fecha'])
 
-            if not tardanzas_unicas.empty:
-                st.error(f"⚠️ **Llegadas tarde detectadas en {hoy.strftime('%B')}:** {len(tardanzas_unicas)}")
-                # Detalle de días (lista compacta)
-                dias_tarde = ", ".join(tardanzas_unicas['Fecha'].tolist())
-                st.write(f"Días: {dias_tarde}")
+            if not tardanzas_u.empty:
+                st.error(f"⚠️ **Llegadas tarde (Entradas/Accesos) en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
+                st.write(f"Días: {', '.join(tardanzas_u['Fecha'].tolist())}")
             
-            # Mostrar tabla completa
             st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
         else: st.info("Sin registros.")
 
-    # --- LAS DEMÁS VISTAS SE MANTIENEN IGUAL (Vacaciones, Art74, etc.) ---
+    # (El resto de las vistas: Vacaciones, Art74, Historial, Feriados se mantienen igual)
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🏖️ Solicitar LAR")
