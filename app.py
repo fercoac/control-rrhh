@@ -185,10 +185,12 @@ else:
                     if st.button("🚀 ENVIAR SOLICITUD"):
                         p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                         if requests.post(URL_MACRO, json=p).status_code == 200:
-                            st.success("✅ ¡Registrado con éxito!")
+                            # --- MENSAJE MODIFICADO ---
+                            st.success("✅ Solicitud Realizada")
+                            st.warning("⚠️ **Pase por el área de Personal para firmar la nota correspondiente.**")
                             hoy = datetime.now(); texto_d = "día" if d_p == 1 else "días"
                             n = f"SALTA, {hoy.day}/{hoy.month}/{hoy.year}\n\nSr. Ricardo Velarde Figueroa:\n\nYo {user['Nombre']}, DNI {dni_u}, solicito {d_p} {texto_d} hábiles de LAR de {f_i.strftime('%d/%m/%Y')} a {f_f.strftime('%d/%m/%Y')}.\n\nFirma: _________________________"
-                            st.text_area("Copia para imprimir:", n, height=350)
+                            st.text_area("Vista previa de la nota (Para control de Personal):", n, height=300)
                             enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", n)
                             st.cache_data.clear()
         except: st.error("Error al cargar.")
@@ -206,9 +208,11 @@ else:
                 if st.button("🚀 ENVIAR ART. 74"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_art.strftime('%d/%m/%Y'), "fin": f_art.strftime('%d/%m/%Y'), "dias": 1, "tipo": "Art74"}
                     if requests.post(URL_MACRO, json=p).status_code == 200:
-                        st.success("✅ ¡Registrado!")
+                        # --- MENSAJE MODIFICADO ---
+                        st.success("✅ Solicitud Realizada")
+                        st.warning("⚠️ **Pase por el área de Personal para firmar la nota correspondiente.**")
                         hoy = datetime.now(); n_art = f"SALTA, {hoy.day}/{hoy.month}/{hoy.year}\n\nSr. Ricardo Velarde Figueroa:\n\nYo {user['Nombre']}, DNI {dni_u}, solicito justificar inasistencia por Art. 74 el día {f_art.strftime('%d/%m/%Y')}.\n\nFirma: _________________________"
-                        st.text_area("Copia para imprimir:", n_art, height=350)
+                        st.text_area("Vista previa de la nota (Para control de Personal):", n_art, height=300)
                         enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD ART 74: {user['Nombre']}", n_art)
                         st.cache_data.clear()
             else: st.warning("Ya utilizaste tus 2 días anuales.")
