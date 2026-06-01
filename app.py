@@ -11,7 +11,18 @@ import os
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
 
-# --- LOGO EN LA ESQUINA ---
+# --- FUNCIONES AUXILIARES ---
+def numero_a_letras(n):
+    dict_nums = {
+        1: "UNO", 2: "DOS", 3: "TRES", 4: "CUATRO", 5: "CINCO", 
+        6: "SEIS", 7: "SIETE", 8: "OCHO", 9: "NUEVE", 10: "DIEZ",
+        11: "ONCE", 12: "DOCE", 13: "TRECE", 14: "CATORCE", 15: "QUINCE",
+        16: "DIECISEIS", 17: "DIECISIETE", 18: "DIECIOCHO", 19: "DIECINUEVE", 20: "VEINTE",
+        21: "VEINTIUNO", 22: "VEINTIDOS", 23: "VEINTITRES", 24: "VEINTICUATRO", 25: "VEINTICINCO",
+        26: "VEINTISEIS", 27: "VEINTISIETE", 28: "VEINTIOCHO", 29: "VEINTINUEVE", 30: "TREINTA"
+    }
+    return dict_nums.get(n, str(n))
+
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
         data = f.read()
@@ -54,7 +65,7 @@ custom_style = """
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
-# --- CONFIGURACIÓN DE DATOS ---
+# --- DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -66,10 +77,8 @@ GID_FERIADOS = "320254015"
 def leer_hoja_cache(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
     for i in range(5):
-        try:
-            return pd.read_csv(url, timeout=10)
-        except:
-            time.sleep(2)
+        try: return pd.read_csv(url, timeout=10)
+        except: time.sleep(2)
     return pd.read_csv(url)
 
 def enviar_correo(destinatario, asunto, cuerpo):
@@ -93,24 +102,22 @@ if 'view' not in st.session_state: st.session_state.view = "Home"
 # --- LOGIN ---
 if not st.session_state.auth:
     st.title("🔐 Control de Ingresos")
-    st.caption("Subsecretaría del Parque Automotor")
     dni_i = st.text_input("DNI")
     pin_i = st.text_input("PIN (4 dígitos)", type="password")
     if st.button("Ingresar"):
-        with st.spinner('Estableciendo conexión segura...'):
-            try:
-                df = leer_hoja_cache(GID_EMPLEADOS)
-                df.columns = df.columns.str.strip()
-                df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
-                df['PIN'] = df['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
-                u = df[(df['DNI'] == str(dni_i).strip()) & (df['PIN'] == str(pin_i).strip())]
-                if not u.empty:
-                    st.session_state.auth = True
-                    st.session_state.user = u.iloc[0].to_dict()
-                    st.cache_data.clear()
-                    st.rerun()
-                else: st.error("DNI o PIN incorrectos.")
-            except: st.error("Error de conexión. Intente presionar el botón nuevamente.")
+        try:
+            df = leer_hoja_cache(GID_EMPLEADOS)
+            df.columns = df.columns.str.strip()
+            df['DNI'] = df['DNI'].astype(str).str.strip().str.replace('.0', '', regex=False)
+            df['PIN'] = df['PIN'].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(4)
+            u = df[(df['DNI'] == str(dni_i).strip()) & (df['PIN'] == str(pin_i).strip())]
+            if not u.empty:
+                st.session_state.auth = True
+                st.session_state.user = u.iloc[0].to_dict()
+                st.cache_data.clear()
+                st.rerun()
+            else: st.error("DNI o PIN incorrectos.")
+        except: st.error("Error de conexión.")
 
 # --- APP ---
 else:
@@ -129,7 +136,6 @@ else:
         if st.button("🏖️ Solicitar Licencia LAR"): st.session_state.view = "Vacaciones"; st.rerun()
         if st.button("📄 Solicitar Art. 74 (Particulares)"): st.session_state.view = "Art74"; st.rerun()
         if st.button("🔍 Ver Estado de Mis Solicitudes"): st.session_state.view = "Historial"; st.rerun()
-        if st.button("🗓️ Consultar Calendario de Feriados"): st.session_state.view = "Feriados"; st.rerun()
 
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
@@ -159,7 +165,7 @@ else:
                     st.write(f"Días: {', '.join(tardanzas_u['Fecha'].tolist())}")
                 st.dataframe(m.drop(columns=['dt', 'temp_fecha', 'temp_hora']), use_container_width=True, hide_index=True)
             else: st.info("Sin registros.")
-        except: st.error("Error al cargar marcas.")
+        except: st.error("Error al cargar.")
 
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
@@ -185,15 +191,32 @@ else:
                     if st.button("🚀 ENVIAR SOLICITUD"):
                         p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                         if requests.post(URL_MACRO, json=p).status_code == 200:
-                            # --- MENSAJE MODIFICADO ---
                             st.success("✅ Solicitud Realizada")
-                            st.warning("⚠️ **Pase por el área de Personal para firmar la nota correspondiente.**")
-                            hoy = datetime.now(); texto_d = "día" if d_p == 1 else "días"
-                            n = f"SALTA, {hoy.day}/{hoy.month}/{hoy.year}\n\nSr. Ricardo Velarde Figueroa:\n\nYo {user['Nombre']}, DNI {dni_u}, solicito {d_p} {texto_d} hábiles de LAR de {f_i.strftime('%d/%m/%Y')} a {f_f.strftime('%d/%m/%Y')}.\n\nFirma: _________________________"
-                            st.text_area("Vista previa de la nota (Para control de Personal):", n, height=300)
-                            enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD LAR: {user['Nombre']}", n)
+                            st.warning("Pase por el área de Personal para firmar la nota.")
+                            
+                            # GENERACIÓN DE NOTA SEGÚN IMAGEN
+                            hoy = datetime.now()
+                            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                            dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                            fecha_hoy_larga = f"{dias_semana[hoy.weekday()]} {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+                            
+                            n_letras = numero_a_letras(d_p)
+                            
+                            nota_lar = f"""
+                                SOLICITUD DE LICENCIA
+                                SALTA, {fecha_hoy_larga}
+
+            Por la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del 
+            día: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.
+
+
+            .....................................             .....................................
+                   V°B° del Jefe                             Firma del solicitante
+                            """
+                            st.text_area("Copia para imprimir:", nota_lar, height=350)
+                            enviar_correo("rrhhparqueautomotor@gmail.com", f"LAR: {user['Nombre']}", nota_lar)
                             st.cache_data.clear()
-        except: st.error("Error al cargar.")
+        except: st.error("Error.")
 
     elif st.session_state.view == "Art74":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
@@ -208,39 +231,26 @@ else:
                 if st.button("🚀 ENVIAR ART. 74"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_art.strftime('%d/%m/%Y'), "fin": f_art.strftime('%d/%m/%Y'), "dias": 1, "tipo": "Art74"}
                     if requests.post(URL_MACRO, json=p).status_code == 200:
-                        # --- MENSAJE MODIFICADO ---
                         st.success("✅ Solicitud Realizada")
-                        st.warning("⚠️ **Pase por el área de Personal para firmar la nota correspondiente.**")
-                        hoy = datetime.now(); n_art = f"SALTA, {hoy.day}/{hoy.month}/{hoy.year}\n\nSr. Ricardo Velarde Figueroa:\n\nYo {user['Nombre']}, DNI {dni_u}, solicito justificar inasistencia por Art. 74 el día {f_art.strftime('%d/%m/%Y')}.\n\nFirma: _________________________"
-                        st.text_area("Vista previa de la nota (Para control de Personal):", n_art, height=300)
-                        enviar_correo("rrhhparqueautomotor@gmail.com", f"SOLICITUD ART 74: {user['Nombre']}", n_art)
+                        st.warning("Pase por el área de Personal para firmar.")
+                        hoy = datetime.now()
+                        n_art = f"SOLICITUD ART. 74\nSALTA, {hoy.strftime('%d/%m/%Y')}\n\nYo {user['Nombre']}, solicito Art. 74 para el día {f_art.strftime('%d/%m/%Y')}.\n\n...................\nFirma"
+                        st.text_area("Nota:", n_art, height=250)
+                        enviar_correo("rrhhparqueautomotor@gmail.com", f"ART 74: {user['Nombre']}", n_art)
                         st.cache_data.clear()
-            else: st.warning("Ya utilizaste tus 2 días anuales.")
         except: st.error("Error.")
 
     elif st.session_state.view == "Historial":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🔍 Mis Solicitudes")
-        try:
-            df_sol = leer_hoja_cache(GID_SOLICITUDES)
-            df_sol.columns = df_sol.columns.str.strip()
-            dni_u = str(user['DNI']).split('.')[0]
-            mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
-            if not mis_s.empty:
-                def format_estado(val):
-                    if str(val).strip() == "Aprobado": return "✅ Aprobado"
-                    if str(val).strip() == "Pendiente": return "⏳ Pendiente"
-                    if str(val).strip() in ["Rechazado", "No Aprobado"]: return "❌ Rechazado"
-                    return val
-                mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
-                st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
-            else: st.info("Sin registros.")
-        except: st.error("Error al cargar.")
-
-    elif st.session_state.view == "Feriados":
-        if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
-        st.header("🗓️ Feriados")
-        try:
-            df_f = leer_hoja_cache(GID_FERIADOS)
-            st.dataframe(df_f, use_container_width=True, hide_index=True)
-        except: st.error("Error.")
+        df_sol = leer_hoja_cache(GID_SOLICITUDES)
+        dni_u = str(user['DNI']).split('.')[0]
+        mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
+        if not mis_s.empty:
+            def format_estado(val):
+                if str(val).strip() == "Aprobado": return "✅ Aprobado"
+                if str(val).strip() == "Pendiente": return "⏳ Pendiente"
+                return "❌ Rechazado" if str(val).strip() == "Rechazado" else val
+            mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
+            st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
+        else: st.info("Sin registros.")
