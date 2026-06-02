@@ -131,67 +131,46 @@ else:
     if st.session_state.view == "Home":
         nombre_pila = user['Nombre'].split()[-1] if len(user['Nombre'].split()) > 1 else user['Nombre']
         st.title(f"Hola, {nombre_pila} 👋")
+        
         if st.button("📋 Mis Marcas Biométricas"): st.session_state.view = "Marcas"; st.rerun()
         if st.button("🏖️ Solicitar Licencia LAR"): st.session_state.view = "Vacaciones"; st.rerun()
         if st.button("📄 Solicitar Art. 74 (Particulares)"): st.session_state.view = "Art74"; st.rerun()
         if st.button("🔍 Ver Estado de Mis Solicitudes"): st.session_state.view = "Historial"; st.rerun()
+        if st.button("🗓️ Consultar Calendario de Feriados"): st.session_state.view = "Feriados"; st.rerun()
+        
         if st.session_state.is_admin:
             st.divider()
             if st.button("🚨 PANEL CONTROL: Llegadas Tarde (Admin)"): st.session_state.view = "AdminTardanzas"; st.rerun()
 
     elif st.session_state.view == "AdminTardanzas":
-        if st.button("⬅️ Volver al Inicio"): st.session_state.view = "Home"; st.rerun()
+        if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🚨 Reporte de Llegadas Tarde")
-        
-        # PESTAÑAS PARA MES ACTUAL Y ANTERIOR
         tab_actual, tab_anterior = st.tabs(["📅 Mes en Curso", "📚 Mes Anterior"])
-        
         try:
             df_all = leer_hoja_cache(GID_MARCAS)
             df_all.columns = df_all.columns.str.strip()
             df_all['temp_fecha'] = pd.to_datetime(df_all['Fecha'], dayfirst=True)
             df_all['temp_hora'] = pd.to_datetime(df_all['Hora'], format='%H:%M').dt.time
-            
             hoy = datetime.now()
-            # Calcular mes anterior
-            primer_dia_actual = hoy.replace(day=1)
-            ultimo_dia_anterior = primer_dia_actual - timedelta(days=1)
-            
+            ultimo_dia_anterior = hoy.replace(day=1) - timedelta(days=1)
             limite_i = datetime.strptime("08:11", "%H:%M").time()
             limite_f = datetime.strptime("09:00", "%H:%M").time()
 
             def mostrar_reporte(mes, anio):
-                tardes = df_all[
-                    (df_all['temp_fecha'].dt.month == mes) & 
-                    (df_all['temp_fecha'].dt.year == anio) &
-                    (df_all['temp_hora'] >= limite_i) & 
-                    (df_all['temp_hora'] <= limite_f) & 
-                    (df_all['Evento'].str.strip().isin(['Entrada', 'Acceso']))
-                ].copy()
-                
+                tardes = df_all[(df_all['temp_fecha'].dt.month == mes) & (df_all['temp_fecha'].dt.year == anio) & (df_all['temp_hora'] >= limite_i) & (df_all['temp_hora'] <= limite_f) & (df_all['Evento'].str.strip().isin(['Entrada', 'Acceso']))].copy()
                 if not tardes.empty:
-                    agentes = sorted(tardes['Nombre'].unique())
-                    for agente in agentes:
+                    for agente in sorted(tardes['Nombre'].unique()):
                         df_agente = tardes[tardes['Nombre'] == agente].sort_values('temp_fecha', ascending=False)
                         st.markdown(f"### **{agente}**")
                         st.write(f"Total tardanzas: {len(df_agente.drop_duplicates(subset=['Fecha']))}")
                         st.dataframe(df_agente[['Fecha', 'Hora', 'Evento']], use_container_width=True, hide_index=True)
                         st.divider()
-                else:
-                    st.info("No se encontraron registros de tardanza para este período.")
+                else: st.info("Sin registros.")
 
-            with tab_actual:
-                st.subheader(f"Tardanzas de {hoy.strftime('%B %Y')}")
-                mostrar_reporte(hoy.month, hoy.year)
-                
-            with tab_anterior:
-                st.subheader(f"Histórico de {ultimo_dia_anterior.strftime('%B %Y')}")
-                mostrar_reporte(ultimo_dia_anterior.month, ultimo_dia_anterior.year)
+            with tab_actual: mostrar_reporte(hoy.month, hoy.year)
+            with tab_anterior: mostrar_reporte(ultimo_dia_anterior.month, ultimo_dia_anterior.year)
+        except Exception as e: st.error(f"Error: {e}")
 
-        except Exception as e:
-            st.error(f"Error procesando datos: {e}")
-
-    # (Vistas de Marcas, LAR, Art74 e Historial se mantienen igual...)
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📋 Mis Registros")
@@ -225,6 +204,7 @@ else:
         st.header("🏖️ Solicitar LAR")
         try:
             df_sol = leer_hoja_cache(GID_SOLICITUDES)
+            df_sol.columns = df_sol.columns.str.strip()
             dni_u = str(user['DNI']).split('.')[0]
             usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
             rem = float(user['Dias_Totales']) - usados
@@ -232,7 +212,7 @@ else:
             f_i = st.date_input("Inicio", format="DD/MM/YYYY")
             f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
             try:
-                df_f = leer_ho_cache(GID_FERIADOS)
+                df_f = leer_hoja_cache(GID_FERIADOS)
                 l_f = set(pd.to_datetime(df_f['Fecha'], dayfirst=True, errors='coerce').dropna().dt.date.tolist())
             except: l_f = set()
             r = (f_f - f_i).days + 1
@@ -244,8 +224,7 @@ else:
                         if requests.post(URL_MACRO, json=p).status_code == 200:
                             st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal para firmar.")
                             hoy = datetime.now(); meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-                            dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-                            fecha_hoy_larga = f"{dias_semana[hoy.weekday()]} {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+                            fecha_hoy_larga = f"{hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
                             n_letras = numero_a_letras(d_p)
                             nota_lar = f"SOLICITUD DE LICENCIA\nSALTA, {fecha_hoy_larga}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
                             st.text_area("Copia para imprimir:", nota_lar, height=350)
@@ -272,14 +251,25 @@ else:
     elif st.session_state.view == "Historial":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("🔍 Mis Solicitudes")
-        df_sol = leer_hoja_cache(GID_SOLICITUDES)
-        dni_u = str(user['DNI']).split('.')[0]
-        mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
-        if not mis_s.empty:
-            def format_estado(val):
-                if str(val).strip() == "Aprobado": return "✅ Aprobado"
-                if str(val).strip() == "Pendiente": return "⏳ Pendiente"
-                return "❌ Rechazado" if str(val).strip() == "Rechazado" else val
-            mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
-            st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
-        else: st.info("Sin registros.")
+        try:
+            df_sol = leer_hoja_cache(GID_SOLICITUDES)
+            df_sol.columns = df_sol.columns.str.strip()
+            dni_u = str(user['DNI']).split('.')[0]
+            mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
+            if not mis_s.empty:
+                def format_estado(val):
+                    if str(val).strip() == "Aprobado": return "✅ Aprobado"
+                    if str(val).strip() == "Pendiente": return "⏳ Pendiente"
+                    return "❌ Rechazado" if str(val).strip() == "Rechazado" else val
+                mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
+                st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
+            else: st.info("Sin registros.")
+        except: st.error("Error.")
+
+    elif st.session_state.view == "Feriados":
+        if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
+        st.header("🗓️ Feriados")
+        try:
+            df_f = leer_hoja_cache(GID_FERIADOS)
+            st.dataframe(df_f, use_container_width=True, hide_index=True)
+        except: st.error("Error.")
