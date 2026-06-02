@@ -57,10 +57,10 @@ custom_style = """
         transition: all 0.2s ease; font-weight: 600; text-align: left; padding-left: 20px;
     }
     div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; transform: translateY(-2px); }
-    div[data-testid="metric-container"] { background-color: #ffffff; border: 2px solid #3b82f6; padding: 15px; border-radius: 12px; }
-    [data-testid="stMetricValue"] { color: #1e3a8a !important; font-weight: 800 !important; }
-    [data-testid="stMetricLabel"] { color: #475569 !important; font-weight: 700 !important; }
-    thead tr th { background-color: #1e293b !important; color: white !important; font-weight: bold !important; }
+    div[data-testid="metric-container"] {{ background-color: #ffffff; border: 2px solid #3b82f6; padding: 15px; border-radius: 12px; }}
+    [data-testid="stMetricValue"] {{ color: #1e3a8a !important; font-weight: 800 !important; }}
+    [data-testid="stMetricLabel"] {{ color: #475569 !important; font-weight: 700 !important; }}
+    thead tr th {{ background-color: #1e293b !important; color: white !important; font-weight: bold !important; }}
     </style>
     """
 st.markdown(custom_style, unsafe_allow_html=True)
@@ -131,13 +131,11 @@ else:
     if st.session_state.view == "Home":
         nombre_pila = user['Nombre'].split()[-1] if len(user['Nombre'].split()) > 1 else user['Nombre']
         st.title(f"Hola, {nombre_pila} 👋")
-        
         if st.button("📋 Mis Marcas Biométricas"): st.session_state.view = "Marcas"; st.rerun()
         if st.button("🏖️ Solicitar Licencia LAR"): st.session_state.view = "Vacaciones"; st.rerun()
         if st.button("📄 Solicitar Art. 74 (Particulares)"): st.session_state.view = "Art74"; st.rerun()
         if st.button("🔍 Ver Estado de Mis Solicitudes"): st.session_state.view = "Historial"; st.rerun()
         if st.button("🗓️ Consultar Calendario de Feriados"): st.session_state.view = "Feriados"; st.rerun()
-        
         if st.session_state.is_admin:
             st.divider()
             if st.button("🚨 PANEL CONTROL: Llegadas Tarde (Admin)"): st.session_state.view = "AdminTardanzas"; st.rerun()
@@ -206,31 +204,56 @@ else:
             df_sol = leer_hoja_cache(GID_SOLICITUDES)
             df_sol.columns = df_sol.columns.str.strip()
             dni_u = str(user['DNI']).split('.')[0]
-            usados = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]['Dias_Habiles'].sum()
-            rem = float(user['Dias_Totales']) - usados
-            st.metric("Días LAR Disponibles", f"{int(rem)}")
-            f_i = st.date_input("Inicio", format="DD/MM/YYYY")
-            f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
-            try:
-                df_f = leer_hoja_cache(GID_FERIADOS)
-                l_f = set(pd.to_datetime(df_f['Fecha'], dayfirst=True, errors='coerce').dropna().dt.date.tolist())
-            except: l_f = set()
-            r = (f_f - f_i).days + 1
-            d_p = len([f_i+timedelta(days=i) for i in range(r) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
-            if d_p > 0:
-                if rem >= d_p and st.checkbox("Confirmo fechas"):
-                    if st.button("🚀 ENVIAR"):
-                        p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
-                        if requests.post(URL_MACRO, json=p).status_code == 200:
-                            st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal para firmar.")
-                            hoy = datetime.now(); meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-                            fecha_hoy_larga = f"{hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
-                            n_letras = numero_a_letras(d_p)
-                            nota_lar = f"SOLICITUD DE LICENCIA\nSALTA, {fecha_hoy_larga}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
-                            st.text_area("Copia para imprimir:", nota_lar, height=350)
-                            enviar_correo("rrhhparqueautomotor@gmail.com", f"LAR: {user['Nombre']}", nota_lar)
-                            st.cache_data.clear()
-        except: st.error("Error.")
+            
+            # FILTRAR PARTES USADAS (Máximo 2)
+            mis_lar = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]
+            usados = mis_lar['Dias_Habiles'].sum()
+            partes_usadas = len(mis_lar)
+            
+            rem_actual = float(user['Dias_Totales']) - usados
+            st.metric("Días LAR Disponibles", f"{int(rem_actual)}")
+            
+            # Mostrar alerta de partes
+            if partes_usadas >= 2:
+                st.error(f"⚠️ Ya has utilizado las {partes_usadas} partes permitidas para este período.")
+            else:
+                st.info(f"Has utilizado {partes_usadas} de 2 partes permitidas.")
+                
+                f_i = st.date_input("Inicio", format="DD/MM/YYYY")
+                f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
+                
+                try:
+                    df_f = leer_hoja_cache(GID_FERIADOS)
+                    l_f = set(pd.to_datetime(df_f['Fecha'], dayfirst=True, errors='coerce').dropna().dt.date.tolist())
+                except: l_f = set()
+                
+                r = (f_f - f_i).days + 1
+                d_p = len([f_i+timedelta(days=i) for i in range(r) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
+                
+                if d_p > 0:
+                    rem_proyectado = rem_actual - d_p
+                    
+                    # --- LEYENDA SOLICITADA ---
+                    st.markdown(f"### 📋 Resumen de la selección:")
+                    col_res1, col_fres2 = st.columns(2)
+                    col_res1.warning(f"Días seleccionados: **{d_p}**")
+                    col_fres2.success(f"Remanente final: **{int(rem_proyectado)}**")
+                    
+                    if rem_proyectado < 0:
+                        st.error("⚠️ No tienes suficientes días para esta solicitud.")
+                    elif rem_actual >= d_p and st.checkbox("Confirmo fechas"):
+                        if st.button("🚀 ENVIAR SOLICITUD"):
+                            p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
+                            if requests.post(URL_MACRO, json=p).status_code == 200:
+                                st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal para firmar.")
+                                hoy = datetime.now(); meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                                fecha_hoy_larga = f"{hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+                                n_letras = numero_a_letras(d_p)
+                                nota_lar = f"SOLICITUD DE LICENCIA\nSALTA, {fecha_hoy_larga}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
+                                st.text_area("Copia para imprimir:", nota_lar, height=350)
+                                enviar_correo("rrhhparqueautomotor@gmail.com", f"LAR: {user['Nombre']}", nota_lar)
+                                st.cache_data.clear()
+        except Exception as e: st.error(f"Error: {e}")
 
     elif st.session_state.view == "Art74":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
