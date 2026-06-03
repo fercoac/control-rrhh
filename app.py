@@ -65,6 +65,7 @@ custom_style = """
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
+# --- DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -75,9 +76,9 @@ GID_FERIADOS = "320254015"
 @st.cache_data(ttl=300)
 def leer_hoja_cache(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
-    for i in range(5):
-        try: return pd.read_csv(url, timeout=10)
-        except: time.sleep(2)
+    for i in range(10):
+        try: return pd.read_csv(url, timeout=5)
+        except: time.sleep(0.5)
     return pd.read_csv(url)
 
 def enviar_correo(destinatario, asunto, cuerpo):
@@ -118,7 +119,7 @@ if not st.session_state.auth:
                 if str(dni_i).strip() == "28748288": st.session_state.is_admin = True
                 st.cache_data.clear(); st.rerun()
             else: st.error("DNI o PIN incorrectos.")
-        except: st.error("Error de conexión.")
+        except: st.error("Error de conexión. Intente de nuevo.")
 
 # --- APP ---
 else:
@@ -141,10 +142,36 @@ else:
             st.divider()
             if st.button("🚨 PANEL CONTROL: Llegadas Tarde (Admin)"): st.session_state.view = "AdminTardanzas"; st.rerun()
 
+    elif st.session_state.view == "AdminTardanzas":
+        if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
+        st.header("🚨 Reporte de Llegadas Tarde")
+        tab_act, tab_ant = st.tabs(["📅 Mes en Curso", "📚 Mes Anterior"])
+        try:
+            df_all = leer_hoja_cache(GID_MARCAS)
+            df_all.columns = df_all.columns.str.strip()
+            df_all['temp_fecha'] = pd.to_datetime(df_all['Fecha'], dayfirst=True)
+            df_all['temp_hora'] = pd.to_datetime(df_all['Hora'], format='%H:%M').dt.time
+            hoy = datetime.now()
+            ant = hoy.replace(day=1) - timedelta(days=1)
+            lim_i = datetime.strptime("08:11", "%H:%M").time()
+            lim_f = datetime.strptime("09:00", "%H:%M").time()
+            def rep(m, a):
+                t = df_all[(df_all['temp_fecha'].dt.month == m) & (df_all['temp_fecha'].dt.year == a) & (df_all['temp_hora'] >= lim_i) & (df_all['temp_hora'] <= lim_f) & (df_all['Evento'].str.strip().isin(['Entrada', 'Acceso']))].copy()
+                if not t.empty:
+                    for ag in sorted(t['Nombre'].unique()):
+                        df_ag = t[t['Nombre'] == ag].sort_values('temp_fecha', ascending=False)
+                        st.markdown(f"### **{ag}**")
+                        st.write(f"Total tardanzas: {len(df_ag.drop_duplicates(subset=['Fecha']))}")
+                        st.dataframe(df_ag[['Fecha', 'Hora', 'Evento']], use_container_width=True, hide_index=True)
+                        st.divider()
+                else: st.info("Sin registros.")
+            with tab_act: rep(hoy.month, hoy.year)
+            with tab_ant: rep(ant.month, ant.year)
+        except Exception as e: st.error(f"Error: {e}")
+
     elif st.session_state.view == "Marcas":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
         st.header("📋 Mis Registros")
-        
         try:
             df = leer_hoja_cache(GID_MARCAS)
             df.columns = df.columns.str.strip()
@@ -152,81 +179,18 @@ else:
             col_id = df.columns[0]
             df[col_id] = df[col_id].astype(str).str.strip().str.replace('.0', '', regex=False)
             m = df[df[col_id] == mi_id].copy()
-            
             if not m.empty:
-                m['temp_fecha'] = pd.to_datetime(m['Fecha'], dayfirst=True)
-                m['temp_hora'] = pd.to_datetime(m['Hora'], format='%H:%M').dt.time
-                
-                # --- NUEVA MEJORA: FILTRO DE FECHAS ---
-                hoy = date.today()
-                hace_una_semana = hoy - timedelta(days=7)
-                
-                st.write("Selecciona el rango de fechas que deseas consultar:")
-                rango = st.date_input("Rango de fechas:", 
-                                     value=(hace_una_semana, hoy), 
-                                     format="DD/MM/YYYY")
-                
-                # Solo filtramos si el usuario seleccionó ambas fechas (inicio y fin)
-                if isinstance(rango, tuple) and len(rango) == 2:
-                    fecha_inicio, fecha_fin = rango
-                    m_filtrado = m[(m['temp_fecha'].dt.date >= fecha_inicio) & 
-                                  (m['temp_fecha'].dt.date <= fecha_fin)].copy()
-                else:
-                    m_filtrado = m.copy()
-
-                # Mostrar última marca (siempre del total, no del filtro)
-                m_ordenado = m.sort_values(by=['temp_fecha', 'temp_hora'], ascending=False)
-                ultima = m_ordenado.iloc[0]
-                st.success(f"**Último movimiento:** {ultima['Evento']} el {ultima['Fecha']} a las {ultima['Hora']}")
-
-                # Lógica de llegadas tarde del MES ACTUAL
-                mes_actual_data = m[(m['temp_fecha'].dt.month == datetime.now().month) & (m['temp_fecha'].dt.year == datetime.now().year)]
-                limite_i = datetime.strptime("08:11", "%H:%M").time()
-                limite_f = datetime.strptime("09:00", "%H:%M").time()
-                tardanzas = mes_actual_data[(mes_actual_data['temp_hora'] >= limite_i) & (mes_actual_data['temp_hora'] <= limite_f) & (mes_actual_data['Evento'].str.strip().isin(['Entrada', 'Acceso']))]
-                tardanzas_u = tardanzas.drop_duplicates(subset=['Fecha'])
-                if not tardanzas_u.empty:
-                    st.error(f"⚠️ **Llegadas tarde en {datetime.now().strftime('%B')}:** {len(tardanzas_u)}")
-                    st.write(f"Días: {', '.join(tardanzas_u['Fecha'].tolist())}")
-
-                # Mostrar tabla filtrada u ordenada
-                st.divider()
-                st.subheader("Detalle del historial:")
-                m_filtrado['dt'] = pd.to_datetime(m_filtrado['Fecha'] + ' ' + m_filtrado['Hora'], dayfirst=True)
-                st.dataframe(m_filtrado.sort_values('dt', ascending=False).drop(columns=['dt', 'temp_fecha', 'temp_hora']), 
-                             use_container_width=True, hide_index=True)
+                m['temp_f'] = pd.to_datetime(m['Fecha'], dayfirst=True)
+                h_ini = date.today() - timedelta(days=7)
+                r = st.date_input("Rango:", value=(h_ini, date.today()), format="DD/MM/YYYY")
+                if isinstance(r, tuple) and len(r) == 2:
+                    m_f = m[(m['temp_f'].dt.date >= r[0]) & (m['temp_f'].dt.date <= r[1])].copy()
+                else: m_f = m.copy()
+                m_o = m.sort_values(by=['temp_f'], ascending=False)
+                st.success(f"**Último movimiento:** {m_o.iloc[0]['Evento']} el {m_o.iloc[0]['Fecha']}")
+                st.dataframe(m_f.drop(columns=['temp_f']), use_container_width=True, hide_index=True)
             else: st.info("Sin registros.")
-        except Exception as e: st.error(f"Error: {e}")
-
-    # (Las demás vistas: AdminTardanzas, Vacaciones, Art74, Historial, Feriados se mantienen igual)
-    elif st.session_state.view == "AdminTardanzas":
-        if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
-        st.header("🚨 Reporte de Llegadas Tarde")
-        tab_actual, tab_anterior = st.tabs(["📅 Mes en Curso", "📚 Mes Anterior"])
-        try:
-            df_all = leer_hoja_cache(GID_MARCAS)
-            df_all.columns = df_all.columns.str.strip()
-            df_all['temp_fecha'] = pd.to_datetime(df_all['Fecha'], dayfirst=True)
-            df_all['temp_hora'] = pd.to_datetime(df_all['Hora'], format='%H:%M').dt.time
-            hoy = datetime.now()
-            ultimo_dia_anterior = hoy.replace(day=1) - timedelta(days=1)
-            limite_i = datetime.strptime("08:11", "%H:%M").time()
-            limite_f = datetime.strptime("09:00", "%H:%M").time()
-
-            def mostrar_reporte(mes, anio):
-                tardes = df_all[(df_all['temp_fecha'].dt.month == mes) & (df_all['temp_fecha'].dt.year == anio) & (df_all['temp_hora'] >= limite_i) & (df_all['temp_hora'] <= limite_f) & (df_all['Evento'].str.strip().isin(['Entrada', 'Acceso']))].copy()
-                if not tardes.empty:
-                    for agente in sorted(tardes['Nombre'].unique()):
-                        df_agente = tardes[tardes['Nombre'] == agente].sort_values('temp_fecha', ascending=False)
-                        st.markdown(f"### **{agente}**")
-                        st.write(f"Total tardanzas: {len(df_agente.drop_duplicates(subset=['Fecha']))}")
-                        st.dataframe(df_agente[['Fecha', 'Hora', 'Evento']], use_container_width=True, hide_index=True)
-                        st.divider()
-                else: st.info("Sin registros.")
-
-            with tab_actual: mostrar_reporte(hoy.month, hoy.year)
-            with tab_anterior: mostrar_reporte(ultimo_dia_anterior.month, ultimo_dia_anterior.year)
-        except Exception as e: st.error(f"Error: {e}")
+        except: st.error("Error.")
 
     elif st.session_state.view == "Vacaciones":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
@@ -237,31 +201,33 @@ else:
             dni_u = str(user['DNI']).split('.')[0]
             mis_lar = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]
             usados = mis_lar['Dias_Habiles'].sum()
-            partes_usadas = len(mis_lar)
-            rem_actual = float(user['Dias_Totales']) - usados
-            st.metric("Días LAR Disponibles", f"{int(rem_actual)}")
-            if partes_usadas >= 2: st.error(f"⚠️ Ya utilizaste las 2 partes permitidas.")
+            rem = float(user['Dias_Totales']) - usados
+            st.metric("Días LAR Disponibles", f"{int(rem)}")
+            if len(mis_lar) >= 2: st.error("Límite de 2 partes alcanzado.")
             else:
-                st.info(f"Has utilizado {partes_usadas} de 2 partes.")
                 f_i = st.date_input("Inicio", format="DD/MM/YYYY")
                 f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
                 try:
                     df_f = leer_hoja_cache(GID_FERIADOS)
                     l_f = set(pd.to_datetime(df_f['Fecha'], dayfirst=True, errors='coerce').dropna().dt.date.tolist())
                 except: l_f = set()
-                c_d = (f_f - f_i).days + 1
-                d_p = len([f_i+timedelta(days=i) for i in range(c_d) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
+                d_p = len([f_i+timedelta(days=i) for i in range((f_f-f_i).days+1) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
                 if d_p > 0:
-                    rem_proy = rem_actual - d_p
-                    st.markdown(f"### 📋 Resumen:")
-                    c1, c2 = st.columns(2)
-                    c1.warning(f"Días: **{d_p}**")
-                    c2.success(f"Saldo final: **{int(rem_proy)}**")
-                    if rem_proy >= 0 and st.checkbox("Confirmo fechas"):
-                        if st.button("🚀 ENVIAR SOLICITUD"):
+                    st.info(f"Días: {d_p} | Nuevo saldo: {int(rem-d_p)}")
+                    if rem >= d_p and st.checkbox("Confirmo fechas"):
+                        if st.button("🚀 ENVIAR"):
                             p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                             if requests.post(URL_MACRO, json=p).status_code == 200:
-                                st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal."); st.cache_data.clear()
+                                st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal a firmar.")
+                                # --- NOTA Y MAIL ---
+                                hoy = datetime.now(); meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                                dias_s = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                                f_hoy_l = f"{dias_s[hoy.weekday()]} {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
+                                n_letras = numero_a_letras(d_p)
+                                nota = f"SOLICITUD DE LICENCIA\nSALTA, {f_hoy_l}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
+                                st.text_area("Copia para imprimir:", nota, height=350)
+                                enviar_correo("rrhhparqueautomotor@gmail.com", f"LAR: {user['Nombre']}", nota)
+                                st.cache_data.clear()
         except: st.error("Error.")
 
     elif st.session_state.view == "Art74":
@@ -270,14 +236,20 @@ else:
         try:
             df_sol = leer_hoja_cache(GID_SOLICITUDES)
             dni_u = str(user['DNI']).split('.')[0]
-            u_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
-            st.metric("Días Art. 74 Disponibles", f"{2 - u_art}")
-            if u_art < 2:
+            usados_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
+            st.metric("Días Art. 74 Disponibles", f"{2 - usados_art}")
+            if usados_art < 2:
                 f_art = st.date_input("Fecha", format="DD/MM/YYYY")
                 if st.button("🚀 ENVIAR ART. 74"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_art.strftime('%d/%m/%Y'), "fin": f_art.strftime('%d/%m/%Y'), "dias": 1, "tipo": "Art74"}
                     if requests.post(URL_MACRO, json=p).status_code == 200:
-                        st.success("✅ Solicitud Realizada"); st.cache_data.clear()
+                        st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal a firmar.")
+                        # --- NOTA Y MAIL ---
+                        hoy = datetime.now()
+                        nota_art = f"SOLICITUD ART. 74\nSALTA, {hoy.strftime('%d/%m/%Y')}\n\nYo {user['Nombre']}, DNI {dni_u}, solicito justificar inasistencia por Art. 74 para el día {f_art.strftime('%d/%m/%Y')}.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
+                        st.text_area("Copia para imprimir:", nota_art, height=300)
+                        enviar_correo("rrhhparqueautomotor@gmail.com", f"ART 74: {user['Nombre']}", nota_art)
+                        st.cache_data.clear()
         except: st.error("Error.")
 
     elif st.session_state.view == "Historial":
@@ -288,11 +260,11 @@ else:
             dni_u = str(user['DNI']).split('.')[0]
             mis_s = df_sol[df_sol['DNI'].astype(str) == dni_u].copy()
             if not mis_s.empty:
-                def format_estado(val):
-                    if str(val).strip() == "Aprobado": return "✅ Aprobado"
-                    if str(val).strip() == "Pendiente": return "⏳ Pendiente"
-                    return "❌ Rechazado" if str(val).strip() == "Rechazado" else val
-                mis_s['Estado'] = mis_s['Estado'].apply(format_estado)
+                def fmt(v):
+                    if str(v).strip() == "Aprobado": return "✅ Aprobado"
+                    if str(v).strip() == "Pendiente": return "⏳ Pendiente"
+                    return "❌ Rechazado" if str(v).strip() == "Rechazado" else v
+                mis_s['Estado'] = mis_s['Estado'].apply(fmt)
                 st.dataframe(mis_s[['Tipo', 'Fecha_Inicio', 'Fecha_Fin', 'Dias_Habiles', 'Estado']], use_container_width=True, hide_index=True)
             else: st.info("Sin registros.")
         except: st.error("Error.")
