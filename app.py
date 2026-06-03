@@ -7,6 +7,7 @@ import requests
 import time
 import base64
 import os
+import io
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="RRHH - Parque Automotor", layout="centered")
@@ -65,7 +66,7 @@ custom_style = """
     """
 st.markdown(custom_style, unsafe_allow_html=True)
 
-# --- DATOS ---
+# --- CONFIGURACIÓN DE DATOS ---
 URL_MACRO = "https://script.google.com/macros/s/AKfycby42PKm1KqL0IaqAKfumxB_9_856yueCpJOWx1ersgmb218g6R3sU0Y0SKRQ-ZIQ4Fj/exec"
 SHEET_ID = "1JwTFaSjcYLDLG6knoxXBkjPTZb2L9CGEWVCwXdswjpI"
 GID_EMPLEADOS = "1680284558"
@@ -73,12 +74,18 @@ GID_MARCAS = "598259224"
 GID_SOLICITUDES = "0"
 GID_FERIADOS = "320254015" 
 
+# --- FUNCIÓN DE LECTURA OPTIMIZADA (SÚPER RÁPIDA) ---
 @st.cache_data(ttl=300)
 def leer_hoja_cache(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
-    for i in range(10):
-        try: return pd.read_csv(url, timeout=5)
-        except: time.sleep(0.5)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    for i in range(5):
+        try:
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                return pd.read_csv(io.StringIO(response.text))
+        except:
+            time.sleep(1)
     return pd.read_csv(url)
 
 def enviar_correo(destinatario, asunto, cuerpo):
@@ -96,6 +103,7 @@ def enviar_correo(destinatario, asunto, cuerpo):
         return True
     except: return False
 
+# --- SESIÓN ---
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'view' not in st.session_state: st.session_state.view = "Home"
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
@@ -181,14 +189,26 @@ else:
             m = df[df[col_id] == mi_id].copy()
             if not m.empty:
                 m['temp_f'] = pd.to_datetime(m['Fecha'], dayfirst=True)
+                m['temp_h'] = pd.to_datetime(m['Hora'], format='%H:%M').dt.time
                 h_ini = date.today() - timedelta(days=7)
                 r = st.date_input("Rango:", value=(h_ini, date.today()), format="DD/MM/YYYY")
                 if isinstance(r, tuple) and len(r) == 2:
                     m_f = m[(m['temp_f'].dt.date >= r[0]) & (m['temp_f'].dt.date <= r[1])].copy()
                 else: m_f = m.copy()
-                m_o = m.sort_values(by=['temp_f'], ascending=False)
-                st.success(f"**Último movimiento:** {m_o.iloc[0]['Evento']} el {m_o.iloc[0]['Fecha']}")
-                st.dataframe(m_f.drop(columns=['temp_f']), use_container_width=True, hide_index=True)
+                
+                m_o = m.sort_values(by=['temp_f', 'temp_h'], ascending=False)
+                st.success(f"**Último movimiento:** {m_o.iloc[0]['Evento']} el {m_o.iloc[0]['Fecha']} a las {m_o.iloc[0]['Hora']}")
+                
+                hoy = datetime.now()
+                mes_actual = m[(m['temp_f'].dt.month == hoy.month) & (m['temp_f'].dt.year == hoy.year)]
+                lim_i, lim_f = datetime.strptime("08:11", "%H:%M").time(), datetime.strptime("09:00", "%H:%M").time()
+                tardanzas = mes_actual[(mes_actual['temp_h'] >= lim_i) & (mes_actual['temp_h'] <= lim_f) & (mes_actual['Evento'].str.strip().isin(['Entrada', 'Acceso']))]
+                tardanzas_u = tardanzas.drop_duplicates(subset=['Fecha'])
+                if not tardanzas_u.empty:
+                    st.error(f"⚠️ **Llegadas tarde en {hoy.strftime('%B')}:** {len(tardanzas_u)}")
+                    st.write(f"Días: {', '.join(tardanzas_u['Fecha'].tolist())}")
+                
+                st.dataframe(m_f.drop(columns=['temp_f', 'temp_h']), use_container_width=True, hide_index=True)
             else: st.info("Sin registros.")
         except: st.error("Error.")
 
@@ -201,10 +221,12 @@ else:
             dni_u = str(user['DNI']).split('.')[0]
             mis_lar = df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'LAR')]
             usados = mis_lar['Dias_Habiles'].sum()
+            partes = len(mis_lar)
             rem = float(user['Dias_Totales']) - usados
             st.metric("Días LAR Disponibles", f"{int(rem)}")
-            if len(mis_lar) >= 2: st.error("Límite de 2 partes alcanzado.")
+            if partes >= 2: st.error("Límite de 2 partes alcanzado.")
             else:
+                st.info(f"Has utilizado {partes} de 2 partes.")
                 f_i = st.date_input("Inicio", format="DD/MM/YYYY")
                 f_f = st.date_input("Fin", min_value=f_i, format="DD/MM/YYYY")
                 try:
@@ -213,22 +235,21 @@ else:
                 except: l_f = set()
                 d_p = len([f_i+timedelta(days=i) for i in range((f_f-f_i).days+1) if (f_i+timedelta(days=i)).weekday()<5 and (f_i+timedelta(days=i)) not in l_f])
                 if d_p > 0:
-                    st.info(f"Días: {d_p} | Nuevo saldo: {int(rem-d_p)}")
+                    st.warning(f"Días: **{d_p}** | Nuevo saldo: **{int(rem-d_p)}**")
                     if rem >= d_p and st.checkbox("Confirmo fechas"):
-                        if st.button("🚀 ENVIAR"):
+                        if st.button("🚀 ENVIAR SOLICITUD LAR"):
                             p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_i.strftime('%d/%m/%Y'), "fin": f_f.strftime('%d/%m/%Y'), "dias": d_p, "tipo": "LAR"}
                             if requests.post(URL_MACRO, json=p).status_code == 200:
                                 st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal a firmar.")
-                                # --- NOTA Y MAIL ---
                                 hoy = datetime.now(); meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
                                 dias_s = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
                                 f_hoy_l = f"{dias_s[hoy.weekday()]} {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
-                                n_letras = numero_a_letras(d_p)
-                                nota = f"SOLICITUD DE LICENCIA\nSALTA, {f_hoy_l}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
+                                n_let = numero_a_letras(d_p)
+                                nota = f"SOLICITUD DE LICENCIA\nSALTA, {f_hoy_l}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_let}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
                                 st.text_area("Nota Emitida:", nota, height=350)
                                 enviar_correo("rrhhparqueautomotor@gmail.com", f"LAR: {user['Nombre']}", nota)
                                 st.cache_data.clear()
-        except: st.error("Error.")
+        except Exception as e: st.error(f"Error: {e}")
 
     elif st.session_state.view == "Art74":
         if st.button("⬅️ Volver"): st.session_state.view = "Home"; st.rerun()
@@ -236,17 +257,16 @@ else:
         try:
             df_sol = leer_hoja_cache(GID_SOLICITUDES)
             dni_u = str(user['DNI']).split('.')[0]
-            usados_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
-            st.metric("Días Art. 74 Disponibles", f"{2 - usados_art}")
-            if usados_art < 2:
+            u_art = len(df_sol[(df_sol['DNI'].astype(str) == dni_u) & (df_sol['Tipo'] == 'Art74')])
+            st.metric("Días Art. 74 Disponibles", f"{2 - u_art}")
+            if u_art < 2:
                 f_art = st.date_input("Fecha", format="DD/MM/YYYY")
                 if st.button("🚀 ENVIAR ART. 74"):
                     p = {"dni": dni_u, "nombre": user['Nombre'], "inicio": f_art.strftime('%d/%m/%Y'), "fin": f_art.strftime('%d/%m/%Y'), "dias": 1, "tipo": "Art74"}
                     if requests.post(URL_MACRO, json=p).status_code == 200:
                         st.success("✅ Solicitud Realizada"); st.warning("Pase por Personal a firmar.")
-                        # --- NOTA Y MAIL ---
                         hoy = datetime.now()
-                        nota_art = f"SOLICITUD ART. 74\nSALTA, {hoy.strftime('%d/%m/%Y')}\n\nYo {user['Nombre']}, DNI {dni_u}, solicito justificar inasistencia por Art. 74 para el día {f_art.strftime('%d/%m/%Y')}.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
+                        nota_art = f"SOLICITUD ART. 74\nSALTA, {hoy.strftime('%d/%m/%Y')}\n\nYo {user['Nombre']}, DNI {dni_u}, solicito Art. 74 para el día {f_art.strftime('%d/%m/%Y')}.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
                         st.text_area("Nota Emitida:", nota_art, height=300)
                         enviar_correo("rrhhparqueautomotor@gmail.com", f"ART 74: {user['Nombre']}", nota_art)
                         st.cache_data.clear()
