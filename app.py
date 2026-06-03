@@ -225,7 +225,7 @@ else:
                                 f_hoy_l = f"{dias_s[hoy.weekday()]} {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"
                                 n_letras = numero_a_letras(d_p)
                                 nota = f"SOLICITUD DE LICENCIA\nSALTA, {f_hoy_l}\n\nPor la presente solicito la concesión de LICENCIA ANUAL ORDINARIA/2025 a partir del \ndía: {f_i.strftime('%d/%m/%Y')}, hasta el día {f_f.strftime('%d/%m/%Y')} inclusive, por el termino de {d_p} ({n_letras}) días hábiles.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
-                                st.text_area("Copia para imprimir:", nota, height=350)
+                                st.text_area("Nota Emitida:", nota, height=350)
                                 enviar_correo("rrhhparqueautomotor@gmail.com", f"LAR: {user['Nombre']}", nota)
                                 st.cache_data.clear()
         except: st.error("Error.")
@@ -247,7 +247,7 @@ else:
                         # --- NOTA Y MAIL ---
                         hoy = datetime.now()
                         nota_art = f"SOLICITUD ART. 74\nSALTA, {hoy.strftime('%d/%m/%Y')}\n\nYo {user['Nombre']}, DNI {dni_u}, solicito justificar inasistencia por Art. 74 para el día {f_art.strftime('%d/%m/%Y')}.\n\n\n.....................................             .....................................\n       V°B° del Jefe                             Firma del solicitante"
-                        st.text_area("Copia para imprimir:", nota_art, height=300)
+                        st.text_area("Nota Emitida:", nota_art, height=300)
                         enviar_correo("rrhhparqueautomotor@gmail.com", f"ART 74: {user['Nombre']}", nota_art)
                         st.cache_data.clear()
         except: st.error("Error.")
